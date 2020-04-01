@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 int	r_dlightframecount;
 
+extern cvar_t r_flatlightstyles; //johnfitz
 
 /*
 ==================
@@ -45,10 +46,18 @@ void R_AnimateLight (void)
 			d_lightstylevalue[j] = 256;
 			continue;
 		}
-		k = i % cl_lightstyle[j].length;
-		k = cl_lightstyle[j].map[k] - 'a';
-		k = k*22;
-		d_lightstylevalue[j] = k;
+		//johnfitz -- r_flatlightstyles
+		if (r_flatlightstyles.value == 2)
+			k = cl_lightstyle[j].peak - 'a';
+		else if (r_flatlightstyles.value == 1)
+			k = cl_lightstyle[j].average - 'a';
+		else
+		{
+			k = i % cl_lightstyle[j].length;
+			k = cl_lightstyle[j].map[k] - 'a';
+		}
+		d_lightstylevalue[j] = k*22;
+		//johnfitz
 	}	
 }
 

@@ -27,7 +27,27 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 void (*vid_menudrawfn)(void);
 void (*vid_menukeyfn)(int key);
 
-enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_keys, m_help, m_quit, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist} m_state;
+enum {
+	m_none, 
+	m_main, 
+	m_singleplayer, 
+	m_load, 
+	m_save, 
+	m_multiplayer, 
+	m_setup, 
+	m_net, 
+	m_options, 
+	m_video, 
+	m_keys, 
+	m_help, 
+	m_quit, 
+	m_serialconfig, 
+	m_modemconfig, 
+	m_lanconfig, 
+	m_gameoptions, 
+	m_search, 
+	m_slist
+} m_state;
 
 void M_Menu_Main_f (void);
 	void M_Menu_SinglePlayer_f (void);
@@ -36,17 +56,17 @@ void M_Menu_Main_f (void);
 	void M_Menu_MultiPlayer_f (void);
 		void M_Menu_Setup_f (void);
 		void M_Menu_Net_f (void);
+		void M_Menu_LanConfig_f (void);
+		void M_Menu_SerialConfig_f (void);
+		void M_Menu_ModemConfig_f (void);
+		void M_Menu_GameOptions_f (void);
+		void M_Menu_Search_f (void);
+		void M_Menu_ServerList_f (void);
 	void M_Menu_Options_f (void);
 		void M_Menu_Keys_f (void);
 		void M_Menu_Video_f (void);
 	void M_Menu_Help_f (void);
 	void M_Menu_Quit_f (void);
-void M_Menu_SerialConfig_f (void);
-	void M_Menu_ModemConfig_f (void);
-void M_Menu_LanConfig_f (void);
-void M_Menu_GameOptions_f (void);
-void M_Menu_Search_f (void);
-void M_Menu_ServerList_f (void);
 
 void M_Main_Draw (void);
 	void M_SinglePlayer_Draw (void);
@@ -55,17 +75,17 @@ void M_Main_Draw (void);
 	void M_MultiPlayer_Draw (void);
 		void M_Setup_Draw (void);
 		void M_Net_Draw (void);
+		void M_SerialConfig_Draw (void);
+		void M_ModemConfig_Draw (void);
+		void M_LanConfig_Draw (void);
+		void M_GameOptions_Draw (void);
+		void M_Search_Draw (void);
+		void M_ServerList_Draw (void);
 	void M_Options_Draw (void);
 		void M_Keys_Draw (void);
 		void M_Video_Draw (void);
 	void M_Help_Draw (void);
 	void M_Quit_Draw (void);
-void M_SerialConfig_Draw (void);
-	void M_ModemConfig_Draw (void);
-void M_LanConfig_Draw (void);
-void M_GameOptions_Draw (void);
-void M_Search_Draw (void);
-void M_ServerList_Draw (void);
 
 void M_Main_Key (int key);
 	void M_SinglePlayer_Key (int key);
@@ -74,17 +94,17 @@ void M_Main_Key (int key);
 	void M_MultiPlayer_Key (int key);
 		void M_Setup_Key (int key);
 		void M_Net_Key (int key);
+		void M_SerialConfig_Key (int key);
+		void M_ModemConfig_Key (int key);
+		void M_LanConfig_Key (int key);
+		void M_GameOptions_Key (int key);
+		void M_Search_Key (int key);
+		void M_ServerList_Key (int key);
 	void M_Options_Key (int key);
 		void M_Keys_Key (int key);
 		void M_Video_Key (int key);
 	void M_Help_Key (int key);
 	void M_Quit_Key (int key);
-void M_SerialConfig_Key (int key);
-	void M_ModemConfig_Key (int key);
-void M_LanConfig_Key (int key);
-void M_GameOptions_Key (int key);
-void M_Search_Key (int key);
-void M_ServerList_Key (int key);
 
 qboolean	m_entersound;		// play after drawing a frame, so caching
 								// won't disrupt the sound
@@ -440,7 +460,7 @@ void M_SinglePlayer_Key (int key)
 
 int		load_cursor;		// 0 < load_cursor < MAX_SAVEGAMES
 
-#define	MAX_SAVEGAMES		12
+#define	MAX_SAVEGAMES		20 //johnfitz -- increased from 12
 char	m_filenames[MAX_SAVEGAMES][SAVEGAME_COMMENT_LENGTH+1];
 int		loadable[MAX_SAVEGAMES];
 
@@ -1077,12 +1097,12 @@ void M_AdjustSliders (int dir)
 		Cvar_SetValue ("viewsize", scr_viewsize.value);
 		break;
 	case 4:	// gamma
-		v_gamma.value -= dir * 0.05;
-		if (v_gamma.value < 0.5)
-			v_gamma.value = 0.5;
-		if (v_gamma.value > 1)
-			v_gamma.value = 1;
-		Cvar_SetValue ("gamma", v_gamma.value);
+		vid_gamma.value -= dir * 0.05;
+		if (vid_gamma.value < 0.5)
+			vid_gamma.value = 0.5;
+		if (vid_gamma.value > 1)
+			vid_gamma.value = 1;
+		Cvar_SetValue ("gamma", vid_gamma.value);
 		break;
 	case 5:	// mouse speed
 		sensitivity.value += dir * 0.5;
@@ -1194,7 +1214,7 @@ void M_Options_Draw (void)
 	M_DrawSlider (220, 56, r);
 
 	M_Print (16, 64, "            Brightness");
-	r = (1.0 - v_gamma.value) / 0.5;
+	r = (1.0 - vid_gamma.value) / 0.5;
 	M_DrawSlider (220, 64, r);
 
 	M_Print (16, 72, "           Mouse Speed");
@@ -1637,10 +1657,10 @@ void M_Quit_Draw (void) //johnfitz -- modified for new quit message
 		m_state = m_quit;
 	}
 
-	sprintf(ver,      "FitzQuake version %1.2f", FITZQUAKE_VERSION);
+	sprintf(ver, "FitzQuake version %1.2f", FITZQUAKE_VERSION);
 	M_DrawTextBox (56, 76, 24, 4);
-	M_Print (72, 88,  ver);
-	M_Print (84, 96,  "by John Fitzgibbons");
+	M_Print (72, 88, ver);
+	M_Print (84, 96, "by John Fitzgibbons");
 	M_PrintWhite (100, 104, "Press y to quit");
 }
 

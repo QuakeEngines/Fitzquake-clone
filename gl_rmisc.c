@@ -24,16 +24,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 //johnfitz -- new cvars
 extern cvar_t r_clearcolor;
-//extern cvar_t r_fullbright_world;
-//extern cvar_t r_fullbright_bmodels;
-//extern cvar_t r_fullbright_bspmodels;
-//extern cvar_t r_fullbright_models;
-//extern cvar_t r_fullbright_particles;
 extern cvar_t r_particles;
 extern cvar_t r_drawflat;
-//extern cvar_t _gl_texturemode;
+extern cvar_t r_flatlightstyles;
 extern cvar_t gl_fullbrights;
 extern cvar_t gl_farclip;
+extern cvar_t gl_overbright_models;
+//extern cvar_t _gl_texturemode;
 cvar_t r_waterwarp = {"r_waterwarp", "1"};
 //johnfitz
 
@@ -41,7 +38,6 @@ extern int gl_filter_min, gl_filter_max; //johnfitz
 extern int particletexture1, particletexture2, particletexture3; //johnfitz
 
 void Draw_TextureMode_f (void); //johnfitz
-
 
 /*
 ====================
@@ -335,18 +331,15 @@ void R_Init (void)
 	Cvar_RegisterVariable (&gl_doubleeyes, NULL);
 
 	//johnfitz -- new cvars
-//	Cvar_RegisterVariable (&r_fullbright_world, NULL);
-//	Cvar_RegisterVariable (&r_fullbright_bmodels, NULL);
-//	Cvar_RegisterVariable (&r_fullbright_bspmodels, NULL);
-//	Cvar_RegisterVariable (&r_fullbright_models, NULL);
-//	Cvar_RegisterVariable (&r_fullbright_particles, NULL);
 	Cvar_RegisterVariable (&r_particles, R_SetParticleTexture_f);
 	Cvar_RegisterVariable (&r_clearcolor, R_SetClearColor_f);
 	Cvar_RegisterVariable (&r_waterwarp, NULL);
 	Cvar_RegisterVariable (&r_drawflat, NULL);
+	Cvar_RegisterVariable (&r_flatlightstyles, NULL);
 //	Cvar_RegisterVariable (&_gl_texturemode, Draw_TextureMode_f);
-	Cvar_RegisterVariable (&gl_fullbrights, NULL);
 	Cvar_RegisterVariable (&gl_farclip, NULL);
+	Cvar_RegisterVariable (&gl_fullbrights, NULL);
+	Cvar_RegisterVariable (&gl_overbright_models, NULL);
 	//johnfitz
 
 	R_InitParticles ();
@@ -436,12 +429,10 @@ void R_TranslatePlayerSkin (int playernum)
 	// instead of sending it through gl_upload 8
     GL_Bind(playertextures + playernum);
 
-	scaled_width = gl_max_size.value < 512 ? gl_max_size.value : 512;
-	scaled_height = gl_max_size.value < 256 ? gl_max_size.value : 256;
-
-	// allow users to crunch sizes down even more if they want
-	scaled_width >>= (int)gl_playermip.value;
-	scaled_height >>= (int)gl_playermip.value;
+	//johnfitz -- use GL_SafeTextureSize
+	scaled_width = GL_SafeTextureSize (512); 
+	scaled_height = GL_SafeTextureSize (256);
+	//johnfitz
 
 	if (VID_Is8bit()) { // 8bit texture upload
 		byte *out2;

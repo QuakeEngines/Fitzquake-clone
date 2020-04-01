@@ -44,6 +44,7 @@ usercmd_t	cmd;
 
 cvar_t	sv_idealpitchscale = {"sv_idealpitchscale","0.8"};
 
+cvar_t	sv_altnoclip = {"sv_altnoclip","1",true}; //johnfitz
 
 /*
 ===============
@@ -167,27 +168,6 @@ SV_Accelerate
 */
 cvar_t	sv_maxspeed = {"sv_maxspeed", "320", false, true};
 cvar_t	sv_accelerate = {"sv_accelerate", "10"};
-#if 0
-void SV_Accelerate (vec3_t wishvel)
-{
-	int			i;
-	float		addspeed, accelspeed;
-	vec3_t		pushvec;
-
-	if (wishspeed == 0)
-		return;
-
-	VectorSubtract (wishvel, velocity, pushvec);
-	addspeed = VectorNormalize (pushvec);
-
-	accelspeed = sv_accelerate.value*host_frametime*addspeed;
-	if (accelspeed > addspeed)
-		accelspeed = addspeed;
-	
-	for (i=0 ; i<3 ; i++)
-		velocity[i] += accelspeed*pushvec[i];	
-}
-#endif
 void SV_Accelerate (void)
 {
 	int			i;
@@ -317,11 +297,32 @@ void SV_WaterJump (void)
 	sv_player->v.velocity[1] = sv_player->v.movedir[1];
 }
 
+/*
+===================
+SV_NoclipMove -- johnfitz
+
+new, alternate noclip. old noclip is still handled in SV_AirMove
+===================
+*/
+void SV_NoclipMove (void)
+{
+	AngleVectors (sv_player->v.v_angle, forward, right, up);
+	
+	velocity[0] = forward[0]*cmd.forwardmove + right[0]*cmd.sidemove;
+	velocity[1] = forward[1]*cmd.forwardmove + right[1]*cmd.sidemove;
+	velocity[2] = forward[2]*cmd.forwardmove + right[2]*cmd.sidemove;
+	velocity[2] += cmd.upmove*2; //doubled to match running speed
+		
+	if (Length (velocity) > sv_maxspeed.value)
+	{
+		VectorNormalize (velocity);
+		VectorScale (velocity, sv_maxspeed.value, velocity);
+	}
+}
 
 /*
 ===================
 SV_AirMove
-
 ===================
 */
 void SV_AirMove (void)
@@ -420,14 +421,14 @@ void SV_ClientThink (void)
 //
 // walk
 //
-	if ( (sv_player->v.waterlevel >= 2)
-	&& (sv_player->v.movetype != MOVETYPE_NOCLIP) )
-	{
+	//johnfitz -- alternate noclip
+	if (sv_player->v.movetype == MOVETYPE_NOCLIP && sv_altnoclip.value)
+		SV_NoclipMove ();
+	else if (sv_player->v.waterlevel >= 2 && sv_player->v.movetype != MOVETYPE_NOCLIP)
 		SV_WaterMove ();
-		return;
-	}
-
-	SV_AirMove ();	
+	else
+		SV_AirMove ();
+	//johnfitz
 }
 
 
@@ -466,11 +467,6 @@ void SV_ReadClientMove (usercmd_t *move)
 	i = MSG_ReadByte ();
 	if (i)
 		host_client->edict->v.impulse = i;
-
-#ifdef QUAKE2
-// read light level
-	host_client->edict->v.light_level = MSG_ReadByte ();
-#endif
 }
 
 /*

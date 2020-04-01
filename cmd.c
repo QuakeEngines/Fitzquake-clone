@@ -318,11 +318,11 @@ void Cmd_Alias_f (void)
 	{
 	case 1: //list all aliases
 		for (a = cmd_alias, i = 0; a; a=a->next, i++)
-			Con_Printf ("   %s: %s", a->name, a->value);
+			Con_SafePrintf ("   %s: %s", a->name, a->value);
 		if (i)
-			Con_Printf ("%i alias command(s)\n", i);
+			Con_SafePrintf ("%i alias command(s)\n", i);
 		else
-			Con_Printf ("no alias commands found\n");
+			Con_SafePrintf ("no alias commands found\n");
 		break;
 	case 2: //output current alias string
 		for (a = cmd_alias ; a ; a=a->next)
@@ -460,7 +460,7 @@ void Cmd_List_f (void)
 {
 	cmd_function_t	*cmd;
 	char 			*partial;
-	int				len, count, temp;
+	int				len, count;
 
 	if (Cmd_Argc() > 1)
 	{
@@ -472,9 +472,6 @@ void Cmd_List_f (void)
 		partial = NULL;
 		len = 0;
 	}
-
-	temp = scr_disabled_for_loading;
-	scr_disabled_for_loading = true;
 	
 	count=0;
 	for (cmd=cmd_functions ; cmd ; cmd=cmd->next)
@@ -483,18 +480,16 @@ void Cmd_List_f (void)
 		{
 			continue;
 		}
-		Con_Printf ("   %s\n", cmd->name);
+		Con_SafePrintf ("   %s\n", cmd->name);
 		count++;
 	}
 
-	Con_Printf ("%i commands", count);
+	Con_SafePrintf ("%i commands", count);
 	if (partial)
 	{
-		Con_Printf (" beginning with \"%s\"", partial);
+		Con_SafePrintf (" beginning with \"%s\"", partial);
 	}
-	Con_Printf ("\n");
-
-	scr_disabled_for_loading = temp;
+	Con_SafePrintf ("\n");
 }
 
 /*

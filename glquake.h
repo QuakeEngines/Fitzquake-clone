@@ -158,7 +158,10 @@ extern	entity_t	*currententity;
 extern	int			r_visframecount;	// ??? what difs?
 extern	int			r_framecount;
 extern	mplane_t	frustum[4];
-extern	int		c_brush_polys, c_alias_polys;
+
+
+//johnfitz -- rendering statistics
+extern int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys, rs_dynamiclightmaps;
 
 
 //
@@ -246,3 +249,11 @@ extern qboolean gl_mtexable;
 
 void GL_DisableMultitexture(void);
 void GL_EnableMultitexture(void);
+
+//johnfitz -- polygon offset
+#define OFFSET_BMODEL 1
+#define OFFSET_NONE 0
+#define OFFSET_DECAL -1
+#define OFFSET_FOG -2
+void GL_PolygonOffset (int);
+//johnfitz

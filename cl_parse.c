@@ -258,8 +258,8 @@ void CL_ParseServerInfo (void)
 	strncpy (cl.levelname, str, sizeof(cl.levelname)-1);
 
 // seperate the printfs so the server message can have a color
-	Con_Printf("\n\n\35\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\37\n\n");
-	Con_Printf ("%c%s\n", 2, str);
+	Con_Printf("\n\n%s\n\n", Con_Quakebar(40)); //johnfitz
+	Con_Printf ("%c%s\n\n", 2, str);
 
 //
 // first we go through and touch all of the precache data that still
@@ -724,6 +724,8 @@ void CL_ParseServerMessage (void)
 {
 	int			cmd;
 	int			i;
+	char		*str; //johnfitz
+	int			total, j; //johnfitz
 	
 //
 // if recording demos, copy the message out
@@ -797,7 +799,11 @@ void CL_ParseServerMessage (void)
 			break;
 			
 		case svc_centerprint:
-			SCR_CenterPrint (MSG_ReadString ());
+			//johnfitz -- log centerprints to console
+			str = MSG_ReadString ();
+			SCR_CenterPrint (str);
+			Con_LogCenterPrint (str); 
+			//johnfitz
 			break;
 			
 		case svc_stufftext:
@@ -828,6 +834,21 @@ void CL_ParseServerMessage (void)
 				Sys_Error ("svc_lightstyle > MAX_LIGHTSTYLES");
 			Q_strcpy (cl_lightstyle[i].map,  MSG_ReadString());
 			cl_lightstyle[i].length = Q_strlen(cl_lightstyle[i].map);
+			//johnfitz -- save extra info
+			if (cl_lightstyle[i].length)
+			{
+				total = 0;
+				cl_lightstyle[i].peak = 'a';
+				for (j=0; j<cl_lightstyle[i].length; j++)
+				{
+					total += cl_lightstyle[i].map[j] - 'a';	
+					cl_lightstyle[i].peak = max(cl_lightstyle[i].peak, cl_lightstyle[i].map[j]);
+				}
+				cl_lightstyle[i].average = total / cl_lightstyle[i].length + 'a';
+			}
+			else
+				cl_lightstyle[i].average = cl_lightstyle[i].peak = 'm';
+			//johnfitz
 			break;
 			
 		case svc_sound:
@@ -947,14 +968,22 @@ void CL_ParseServerMessage (void)
 			cl.intermission = 2;
 			cl.completed_time = cl.time;
 			vid.recalc_refdef = true;	// go to full screen
-			SCR_CenterPrint (MSG_ReadString ());			
+			//johnfitz -- log centerprints to console
+			str = MSG_ReadString ();
+			SCR_CenterPrint (str);
+			Con_LogCenterPrint (str); 
+			//johnfitz			
 			break;
 
 		case svc_cutscene:
 			cl.intermission = 3;
 			cl.completed_time = cl.time;
 			vid.recalc_refdef = true;	// go to full screen
-			SCR_CenterPrint (MSG_ReadString ());			
+			//johnfitz -- log centerprints to console
+			str = MSG_ReadString ();
+			SCR_CenterPrint (str);
+			Con_LogCenterPrint (str); 
+			//johnfitz			
 			break;
 
 		case svc_sellscreen:
@@ -971,11 +1000,7 @@ void CL_ParseServerMessage (void)
 			break;
 
 		case svc_fog:
-			Fog_Parse(MSG_ReadByte() / 255.0,
-					  MSG_ReadByte() / 255.0,
-					  MSG_ReadByte() / 255.0,
-					  MSG_ReadByte() / 255.0,
-					  max(0.0, MSG_ReadFloat()));
+			Fog_ParseServerMessage ();
 			break;
 		//johnfitz
 		}

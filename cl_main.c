@@ -103,9 +103,6 @@ void CL_Disconnect (void)
 {
 // stop sounds (especially looping!)
 	S_StopAllSounds (true);
-	
-// bring the console down and fade the colors back to normal
-//	SCR_BringDownConsole ();
 
 // if running a local server, shut it down
 	if (cls.demoplayback)
@@ -267,49 +264,7 @@ void CL_PrintEntities_f (void)
 	}
 }
 
-
-/*
-===============
-SetPal
-
-Debugging tool, just flashes the screen
-===============
-*/
-void SetPal (int i)
-{
-#if 0
-	static int old;
-	byte	pal[768];
-	int		c;
-	
-	if (i == old)
-		return;
-	old = i;
-
-	if (i==0)
-		VID_SetPalette (host_basepal);
-	else if (i==1)
-	{
-		for (c=0 ; c<768 ; c+=3)
-		{
-			pal[c] = 0;
-			pal[c+1] = 255;
-			pal[c+2] = 0;
-		}
-		VID_SetPalette (pal);
-	}
-	else
-	{
-		for (c=0 ; c<768 ; c+=3)
-		{
-			pal[c] = 0;
-			pal[c+1] = 0;
-			pal[c+2] = 255;
-		}
-		VID_SetPalette (pal);
-	}
-#endif
-}
+//johnfitz -- deleted SetPal()
 
 /*
 ===============
@@ -414,7 +369,7 @@ float	CL_LerpPoint (void)
 	{
 		if (frac < -0.01)
 		{
-SetPal(1);
+//SetPal(1); //johnfitz -- setpal was deleted
 			cl.time = cl.mtime[1];
 //				Con_Printf ("low frac\n");
 		}
@@ -424,18 +379,17 @@ SetPal(1);
 	{
 		if (frac > 1.01)
 		{
-SetPal(2);
+//SetPal(2); //johnfitz -- setpal was deleted
 			cl.time = cl.mtime[0];
 //				Con_Printf ("high frac\n");
 		}
 		frac = 1;
 	}
-	else
-		SetPal(0);
+//	else
+//		SetPal(0); //johnfitz -- setpal was deleted
 		
 	return frac;
 }
-
 
 /*
 ===============

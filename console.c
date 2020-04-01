@@ -33,7 +33,7 @@ int 		con_linewidth;
 
 float		con_cursorspeed = 4;
 
-#define		CON_TEXTSIZE 64*1024 //johnfitz -- was 16384
+#define		CON_TEXTSIZE 64*1024 //johnfitz -- was 16*1024
 
 qboolean 	con_forcedup;		// because no entities to refresh
 
@@ -44,10 +44,13 @@ int			con_x;				// offset in current line for next print
 char		*con_text=0;
 
 cvar_t		con_notifytime = {"con_notifytime","3"};		//seconds
+cvar_t		con_logcenterprint = {"con_logcenterprint", "1"}; //johnfitz
+
+char		con_lastcenterstring[1024]; //johnfitz
 
 #define	NUM_CON_TIMES 4
 float		con_times[NUM_CON_TIMES];	// realtime time the line was generated
-								// for transparent notify lines
+										// for transparent notify lines
 
 int			con_vislines;
 
@@ -58,12 +61,33 @@ extern	char	key_lines[32][MAXCMDLINE];
 extern	int		edit_line;
 extern	int		key_linepos;
 		
-
 qboolean	con_initialized;
 
 int			con_notifylines;		// scan lines to clear for notify lines
 
 extern void M_Menu_Main_f (void);
+
+/*
+================
+Con_Quakebar -- johnfitz -- returns a bar of the desired length, but never wider than the console
+================
+*/
+char *Con_Quakebar (int len)
+{
+	static char bar[41];
+	int i;
+
+	len = min(len, sizeof(bar) - 1);
+	len = min(len, vid.conwidth/8 - 2);
+
+	bar[0] = '\35';
+	for (i = 1; i < len - 1; i++)
+		bar[i] = '\36';
+	bar[len-1] = '\37';
+	bar[len] = 0;
+
+	return bar;
+}
 
 /*
 ================
@@ -318,6 +342,7 @@ void Con_Init (void)
 // register our commands
 //
 	Cvar_RegisterVariable (&con_notifytime, NULL);
+	Cvar_RegisterVariable (&con_logcenterprint, NULL); //johnfitz
 
 	Cmd_AddCommand ("toggleconsole", Con_ToggleConsole_f);
 	Cmd_AddCommand ("messagemode", Con_MessageMode_f);
@@ -549,6 +574,69 @@ void Con_SafePrintf (char *fmt, ...)
 	scr_disabled_for_loading = temp;
 }
 
+/*
+================
+Con_CenterPrintf -- johnfitz -- pad each line with spaces to make it appear centered
+================
+*/
+void Con_CenterPrintf (int linewidth, char *fmt, ...)
+{
+	va_list	argptr;
+	char	msg[MAXPRINTMSG];
+	char	line[41]; //should be bigger
+	char	*start, *ofs;
+	int		len, i, remaining;
+
+	va_start (argptr,fmt);
+	vsprintf (msg,fmt,argptr);
+	va_end (argptr);
+
+//	linewidth = min (linewidth, vid.conwidth>>3);
+	start = msg;
+	do 
+	{
+		memset (line, ' ', linewidth);
+
+		for (len=0; len<linewidth, start[len]; len++)
+			if (start[len] == '\n')
+			{
+				len++;
+				break;
+			}
+
+		for (i=0; i<len; i++)
+			line[i + (linewidth-len)/2] = start[i];
+		line[i + (linewidth-len)/2] = 0;
+			
+		Con_Printf ("%s", line);
+
+		start += len;
+	} while (*start);
+}
+
+/*
+==================
+Con_LogCenterPrint -- johnfitz -- echo centerprint message to the console
+==================
+*/
+void Con_LogCenterPrint (char *str)
+{
+	if (!strcmp(str, con_lastcenterstring))
+		return; //ignore duplicates
+
+	if (cl.gametype == GAME_DEATHMATCH && con_logcenterprint.value != 2)
+		return; //don't log in deathmatch
+	
+	strcpy(con_lastcenterstring, str);
+
+	if (con_logcenterprint.value)
+	{
+		Con_Printf("%s\n", Con_Quakebar(40));
+		Con_CenterPrintf (40, "%s\n", str);
+		Con_Printf("%s\n", Con_Quakebar(40));
+		Con_ClearNotify ();
+	}
+}
 
 /*
 ==============================================================================
@@ -755,12 +843,10 @@ void Con_NotifyBox (char *text)
 	double		t1, t2;
 
 // during startup for sound / cd warnings
-	Con_Printf("\n\n\35\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\37\n");
-
+	Con_Printf("\n\n%s\n", Con_Quakebar(40)); //johnfitz
 	Con_Printf (text);
-
 	Con_Printf ("Press a key.\n");
-	Con_Printf("\35\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\37\n");
+	Con_Printf("%s\n", Con_Quakebar(40)); //johnfitz
 
 	key_count = -2;		// wait for a key down and up
 	key_dest = key_console;

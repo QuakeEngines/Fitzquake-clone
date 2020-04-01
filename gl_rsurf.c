@@ -22,8 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-extern cvar_t gl_fullbrights; //johnfitz -- fullbrights
-extern cvar_t r_drawflat; //johnfitz -- r_drawflat
+extern cvar_t gl_fullbrights; //johnfitz
+extern cvar_t r_drawflat; //johnfitz
 
 #ifndef GL_RGBA4
 #define	GL_RGBA4	0
@@ -236,7 +236,7 @@ Returns the proper texture for a given time and base texture
 */
 texture_t *R_TextureAnimation (texture_t *base)
 {
-	int		reletive;
+	int		relative;
 	int		count;
 
 	if (currententity->frame)
@@ -248,10 +248,10 @@ texture_t *R_TextureAnimation (texture_t *base)
 	if (!base->anim_total)
 		return base;
 
-	reletive = (int)(cl.time*10) % base->anim_total;
+	relative = (int)(cl.time*10) % base->anim_total;
 
 	count = 0;	
-	while (base->anim_min > reletive || base->anim_max <= reletive)
+	while (base->anim_min > relative || base->anim_max <= relative)
 	{
 		base = base->anim_next;
 		if (!base)
@@ -328,7 +328,7 @@ void R_DrawSequentialPoly (msurface_t *s)
 	if (! (s->flags & (SURF_DRAWSKY|SURF_DRAWTURB) ) ) //johnfitz -- waterwarp no longer matters here
 	{
 		R_RenderDynamicLightmaps (s);
-		if (gl_mtexable && !r_fullbright.value && !r_drawflat.value) //johnfitz -- fix r_fullbright
+		if (gl_mtexable && !r_fullbright.value && !r_drawflat.value) //johnfitz -- fullbright, drawflat
 		{
 			p = s->polys;
 			t = R_TextureAnimation (s->texinfo->texture);
@@ -344,6 +344,7 @@ void R_DrawSequentialPoly (msurface_t *s)
 			if (lightmap_modified[i])
 			{
 				lightmap_modified[i] = false;
+				rs_dynamiclightmaps++; //johnfitz
 				theRect = &lightmap_rectchange[i];
 				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, theRect->t, 
 					BLOCK_WIDTH, theRect->h, gl_lightmap_format, GL_UNSIGNED_BYTE,
@@ -570,7 +571,7 @@ void R_RenderBrushPoly (msurface_t *fa)
 	glRect_t    *theRect;
 	int			smax, tmax;
 
-	c_brush_polys++;
+	rs_brushpolys++;
 
 	if (fa->flags & SURF_DRAWSKY)
 	{
@@ -651,7 +652,7 @@ void R_RenderDynamicLightmaps (msurface_t *fa)
 	glRect_t    *theRect;
 	int smax, tmax;
 
-	c_brush_polys++;
+	rs_brushpolys++;
 
 	if (fa->flags & ( SURF_DRAWSKY | SURF_DRAWTURB) )
 		return;
@@ -827,6 +828,7 @@ void R_DrawFullBrightTextures (msurface_t *first_surf, int num_surfs)
     GL_DisableMultitexture ();
 
     glEnable (GL_BLEND);
+	glDepthMask(0); //don't bother writing to z
     for (fa = first_surf, i = 0; i < num_surfs; fa++, i++)
     {
         // find the correct texture
@@ -840,6 +842,7 @@ void R_DrawFullBrightTextures (msurface_t *first_surf, int num_surfs)
 
         fa->draw_this_frame = 0;
     }
+	glDepthMask(1);
 	glDisable (GL_BLEND);
 }
 
@@ -928,6 +931,8 @@ e->angles[0] = -e->angles[0];	// stupid quake bug
 	if (r_drawflat.value) //johnfitz
 		glDisable(GL_TEXTURE_2D);
 
+//	GL_PolygonOffset (OFFSET_BMODEL); //johnfitz
+
 	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
 	{
 	// find which side of the node we are on
@@ -949,6 +954,8 @@ e->angles[0] = -e->angles[0];	// stupid quake bug
 	R_BlendLightmaps ();
 
 	R_DrawFullBrightTextures (clmodel->surfaces, clmodel->numsurfaces);
+
+//	GL_PolygonOffset (OFFSET_NONE); //johnfitz
 
 	glPopMatrix ();
 
@@ -1122,14 +1129,13 @@ void R_DrawWorld (void)
 		glEnable (GL_TEXTURE_2D);
 }
 
-
 /*
 ===============
 R_MarkLeaves
 johnfitz -- rewritten for instant r_novis changes and better water transitions
 ===============
 */
-byte *SV_FatPVS (vec3_t org);
+byte *SV_FatPVS (vec3_t org, model_t *worldmodel);
 int vis_changed; //if true, force pvs to be refreshed
 void R_MarkLeaves (void)
 {
@@ -1171,7 +1177,7 @@ void R_MarkLeaves (void)
 	//draw only PVS nodes
 	{
 		if (nearwaterportal)
-			vis = SV_FatPVS (r_origin);
+			vis = SV_FatPVS (r_origin, cl.worldmodel);
 		else
 			vis = Mod_LeafPVS (r_viewleaf, cl.worldmodel);
 

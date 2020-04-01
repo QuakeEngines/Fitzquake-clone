@@ -97,14 +97,14 @@ static int	windowed_default;
 unsigned char	vid_curpal[256*3];
 static qboolean fullsbardraw = false;
 
-static float vid_gamma = 1.0;
+static float cmdline_gamma = 1.0;
 
 HGLRC	baseRC;
 HDC		maindc;
 
 glvert_t glv;
 
-cvar_t	gl_ztrick = {"gl_ztrick","0"}; //johnfitz -- now defaults to 0
+cvar_t	gl_ztrick = {"gl_ztrick","1"};
 
 HWND WINAPI InitializeWindow (HINSTANCE hInstance, int nCmdShow);
 
@@ -141,6 +141,8 @@ qboolean gl_mtexable = false;
 
 //====================================
 
+cvar_t		vid_gamma = {"gamma", "1", true}; //johnfitz -- moved here from view.c
+
 cvar_t		vid_mode = {"vid_mode","0", false};
 // Note that 0 is MODE_WINDOWED
 cvar_t		_vid_default_mode = {"_vid_default_mode","0", true};
@@ -156,6 +158,99 @@ cvar_t		_windowed_mouse = {"_windowed_mouse","1", true};
 
 int			window_center_x, window_center_y, window_x, window_y, window_width, window_height;
 RECT		window_rect;
+
+
+
+//==========================================================================
+//
+//  HARDWARE GAMMA -- johnfitz
+//
+//==========================================================================
+
+typedef int (WINAPI * RAMPFUNC)();
+RAMPFUNC wglGetDeviceGammaRamp3DFX;
+RAMPFUNC wglSetDeviceGammaRamp3DFX;
+
+unsigned short gammaramp[768];
+unsigned short systemgammaramp[768]; //to restore gamma on exit
+int vid_gammaworks, vid_3dfxgamma;
+
+/*
+================
+VID_SetGammaRamp
+================
+*/
+void VID_SetGammaRamp (unsigned short *ramp)
+{
+	int result = false;
+
+	if (vid_3dfxgamma)
+		result = wglSetDeviceGammaRamp3DFX(maindc, ramp);
+	else if (vid_gammaworks)
+		result = SetDeviceGammaRamp(maindc, ramp);
+	
+	if (vid_gammaworks && result == false)
+		Con_Printf ("VID_SetGammaRamp: failed\n");
+}
+
+/*
+================
+VID_Gamma_Shutdown -- called on exit
+================
+*/
+void VID_Gamma_Shutdown (void)
+{
+	VID_SetGammaRamp (systemgammaramp);
+}
+
+/*
+================
+VID_Gamma_Init -- call on init
+================
+*/
+void VID_Gamma_Init (void)
+{
+	vid_gammaworks = vid_3dfxgamma = false;
+
+	//don't use hardware gamma if command line gamma is requested
+	if (COM_CheckParm("-gamma"))
+		return;
+
+	if (strstr(gl_extensions, "WGL_3DFX_gamma_control"))
+	{
+		wglSetDeviceGammaRamp3DFX = (RAMPFUNC) wglGetProcAddress("wglSetDeviceGammaRamp3DFX");
+		wglGetDeviceGammaRamp3DFX = (RAMPFUNC) wglGetProcAddress("wglGetDeviceGammaRamp3DFX");
+
+		if (wglGetDeviceGammaRamp3DFX (maindc, systemgammaramp))
+			vid_gammaworks = vid_3dfxgamma = true;
+	}
+	else if (GetDeviceGammaRamp (maindc, systemgammaramp))
+		vid_gammaworks = true;
+}
+
+/*
+================
+VID_SetGamma -- callback when the cvar changes
+================
+*/
+void VID_SetGamma (void)
+{
+	static float oldgamma;
+	int i;
+
+	if (vid_gamma.value == oldgamma)
+		return;
+
+	oldgamma = vid_gamma.value;
+
+ 	for (i=0; i<256; i++)
+		gammaramp[i] = gammaramp[i+256] = gammaramp[i+512] = 
+			CLAMP(0, (int) (255 * pow ((i+0.5)/255.5, vid_gamma.value) + 0.5), 255) << 8;
+
+	VID_SetGammaRamp (gammaramp);
+}
+
+//==========================================================================
 
 // direct draw software compatability stuff
 
@@ -233,7 +328,7 @@ qboolean VID_SetWindowedMode (int modenum)
 	// Create the DIB window
 	dibwindow = CreateWindowEx (
 		 ExWindowStyle,
-		 "WinQuake", //johnfitz -- was "WinQuake"
+		 "FitzQuake", //johnfitz -- was "WinQuake"
 		 "FitzQuake", //johnfitz -- was "GLQuake"
 		 WindowStyle,
 		 rect.left, rect.top,
@@ -324,7 +419,7 @@ qboolean VID_SetFullDIBMode (int modenum)
 	// Create the DIB window
 	dibwindow = CreateWindowEx (
 		 ExWindowStyle,
-		 "WinQuake", //johnfitz -- was "WinQuake"
+		 "FitzQuake", //johnfitz -- was "WinQuake"
 		 "FitzQuake", //johnfitz -- was "GLQuake"
 		 WindowStyle,
 		 rect.left, rect.top,
@@ -442,7 +537,7 @@ int VID_SetMode (int modenum, unsigned char *palette)
 // ourselves at the top of the z order, then grab the foreground again,
 // Who knows if it helps, but it probably doesn't hurt
 	SetForegroundWindow (mainwindow);
-	VID_SetPalette (palette);
+	//VID_SetPalette (palette); //johnfitz -- this has already been called once
 	vid_modenum = modenum;
 	Cvar_SetValue ("vid_mode", (float)vid_modenum);
 
@@ -466,7 +561,7 @@ int VID_SetMode (int modenum, unsigned char *palette)
 	if (!msg_suppress_1)
 		Con_SafePrintf ("Video mode %s initialized.\n", VID_GetModeDescription (vid_modenum));
 
-	VID_SetPalette (palette);
+	//VID_SetPalette (palette); //johnfitz -- this has already been called once
 
 	vid.recalc_refdef = 1;
 
@@ -578,12 +673,15 @@ int		texture_extension_number = 1;
 #ifdef _WIN32
 void CheckMultiTextureExtensions(void) 
 {
-	if (strstr(gl_extensions, "GL_SGIS_multitexture ") && !COM_CheckParm("-nomtex")) {
+	if (strstr(gl_extensions, "GL_SGIS_multitexture ") && !COM_CheckParm("-nomtex"))
+	{
 		Con_Printf("Multitexture extensions found.\n");
 		qglMTexCoord2fSGIS = (void *) wglGetProcAddress("glMTexCoord2fSGIS");
 		qglSelectTextureSGIS = (void *) wglGetProcAddress("glSelectTextureSGIS");
 		gl_mtexable = true;
 	}
+	else
+		Con_Printf ("WARNING: Multitexture not supported.\n"); //johnfitz -- notice if not found
 }
 #else
 void CheckMultiTextureExtensions(void) 
@@ -603,13 +701,10 @@ void GL_Init (void)
 	Con_Printf ("GL_VENDOR: %s\n", gl_vendor);
 	gl_renderer = glGetString (GL_RENDERER);
 	Con_Printf ("GL_RENDERER: %s\n", gl_renderer);
-
 	gl_version = glGetString (GL_VERSION);
 	Con_Printf ("GL_VERSION: %s\n", gl_version);
 	gl_extensions = glGetString (GL_EXTENSIONS);
 	Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions);
-
-//	Con_Printf ("%s %s\n", gl_renderer, gl_version);
 
     if (strnicmp(gl_renderer,"PowerVR",7)==0)
          fullsbardraw = true;
@@ -621,25 +716,19 @@ void GL_Init (void)
 	CheckMultiTextureExtensions ();
 
 	glClearColor (0.15,0.15,0.15,0); //johnfitz -- originally 1,0,0,0
-
 	glCullFace(GL_FRONT);
 	glEnable(GL_TEXTURE_2D);
-
 	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GREATER, 0.666); //johnfitz -- originally 0.666
-
+	glAlphaFunc(GL_GREATER, 0.666);
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
 	glShadeModel (GL_FLAT);
-
+	glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST); //johnfitz
+	glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-	glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-//	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 
 #if 0
 	CheckArrayExtensions ();
@@ -762,17 +851,7 @@ void	VID_SetPalette (unsigned char *palette)
 	}
 }
 
-BOOL	gammaworks;
-
-void	VID_ShiftPalette (unsigned char *palette)
-{
-	extern	byte ramps[3][256];
-	
-//	VID_SetPalette (palette);
-
-//	gammaworks = SetDeviceGammaRamp (maindc, ramps);
-}
-
+//johnfitz -- deleted VID_ShiftPalette()
 
 void VID_SetDefaultMode (void)
 {
@@ -796,6 +875,8 @@ void	VID_Shutdown (void)
     	if (hRC)
     	    wglDeleteContext(hRC);
 
+		VID_Gamma_Shutdown (); //johnfitz
+
 		if (hDC && dibwindow)
 			ReleaseDC(dibwindow, hDC);
 
@@ -809,7 +890,6 @@ void	VID_Shutdown (void)
 	}
 }
 
-
 //==========================================================================
 
 
@@ -817,23 +897,28 @@ BOOL bSetupPixelFormat(HDC hDC)
 {
     static PIXELFORMATDESCRIPTOR pfd = {
 	sizeof(PIXELFORMATDESCRIPTOR),	// size of this pfd
-	1,				// version number
-	PFD_DRAW_TO_WINDOW 		// support window
-	|  PFD_SUPPORT_OPENGL 	// support OpenGL
-	|  PFD_DOUBLEBUFFER ,	// double buffered
+	1,						// version number
+	PFD_DRAW_TO_WINDOW |	// support window
+	PFD_SUPPORT_OPENGL |	// support OpenGL
+	PFD_DOUBLEBUFFER,		// double buffered
 	PFD_TYPE_RGBA,			// RGBA type
-	24,				// 24-bit color depth
+	24,						// 24-bit color depth
 	0, 0, 0, 0, 0, 0,		// color bits ignored
-	0,				// no alpha buffer
-	0,				// shift bit ignored
-	0,				// no accumulation buffer
+	0,						// no alpha buffer
+	0,						// shift bit ignored
+	0,						// no accumulation buffer
 	0, 0, 0, 0, 			// accum bits ignored
-	32,				// 32-bit z-buffer	
-	0,				// no stencil buffer
-	0,				// no auxiliary buffer
+#if 0
+	24,						// johnfitz -- 24-bit z-buffer	
+	8,						// johnfitz -- 8-bit stencil buffer
+#else
+	32,						// johnfitz -- 32-bit z-buffer	
+	0,						// johnfitz -- no stencil buffer
+#endif
+	0,						// no auxiliary buffer
 	PFD_MAIN_PLANE,			// main layer
-	0,				// reserved
-	0, 0, 0				// layer masks ignored
+	0,						// reserved
+	0, 0, 0					// layer masks ignored
     };
     int pixelformat;
 
@@ -1369,7 +1454,7 @@ void VID_InitDIB (HINSTANCE hInstance)
     wc.hCursor       = LoadCursor (NULL,IDC_ARROW);
 	wc.hbrBackground = NULL;
     wc.lpszMenuName  = 0;
-    wc.lpszClassName = "WinQuake";
+    wc.lpszClassName = "FitzQuake"; //johnfitz -- was WinQuake
 
     if (!RegisterClass (&wc) )
 		Sys_Error ("Couldn't register window class");
@@ -1584,23 +1669,20 @@ void VID_Init8bitPalette()
 	is8bit = TRUE;
 }
 
-static void Check_Gamma (unsigned char *pal)
+static void Check_Gamma (unsigned char *pal) //changes texture palette based on command line
 {
 	float	f, inf;
 	unsigned char	palette[768];
 	int		i;
 
-	if ((i = COM_CheckParm("-gamma")) == 0) {
-		if ((gl_renderer && strstr(gl_renderer, "Voodoo")) || (gl_vendor && strstr(gl_vendor, "3Dfx")))
-			vid_gamma = 1;
-		else
-			vid_gamma = 0.7; // default to 0.7 on non-3dfx hardware
-	} else
-		vid_gamma = Q_atof(com_argv[i+1]);
+	if ((i = COM_CheckParm("-gamma")) == 0)
+		cmdline_gamma = 1; //johnfitz -- default gamma to 1.0 for consistency with glquake
+	else
+		cmdline_gamma = Q_atof(com_argv[i+1]);
 
 	for (i=0 ; i<768 ; i++)
 	{
-		f = pow ( (pal[i]+1)/256.0 , vid_gamma );
+		f = pow ( (pal[i]+1)/256.0 , cmdline_gamma );
 		inf = f*255 + 0.5;
 		if (inf < 0)
 			inf = 0;
@@ -1639,6 +1721,8 @@ void	VID_Init (unsigned char *palette)
 	Cvar_RegisterVariable (&vid_stretch_by_2, NULL);
 	Cvar_RegisterVariable (&_windowed_mouse, NULL);
 	Cvar_RegisterVariable (&gl_ztrick, NULL);
+	
+	Cvar_RegisterVariable (&vid_gamma, VID_SetGamma); //johnfitz
 
 	Cmd_AddCommand ("vid_nummodes", VID_NumModes_f);
 	Cmd_AddCommand ("vid_describecurrentmode", VID_DescribeCurrentMode_f);
@@ -1875,6 +1959,8 @@ void	VID_Init (unsigned char *palette)
 
 	if (COM_CheckParm("-fullsbar"))
 		fullsbardraw = true;
+
+	VID_Gamma_Init(); //johnfitz
 }
 
 

@@ -26,6 +26,8 @@ entity_t	r_worldentity;
 
 qboolean	r_cache_thrash;		// compatability
 
+extern qboolean mtexenabled; //johnfitz
+
 vec3_t		modelorg, r_entorigin;
 entity_t	*currententity;
 
@@ -34,9 +36,8 @@ int			r_framecount;		// used for dlight push checking
 
 mplane_t	frustum[4];
 
-int			c_brush_polys, c_alias_polys;
-
-extern int	c_sky_polys, c_particle_polys; //johnfitz
+//johnfitz -- rendering statistics
+int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys, rs_dynamiclightmaps;
 
 qboolean	envmap;				// true during envmap command capture 
 
@@ -90,7 +91,7 @@ cvar_t	gl_texsort = {"gl_texsort","1"};
 cvar_t	gl_smoothmodels = {"gl_smoothmodels","1"};
 cvar_t	gl_affinemodels = {"gl_affinemodels","0"};
 cvar_t	gl_polyblend = {"gl_polyblend","1"};
-cvar_t	gl_flashblend = {"gl_flashblend","0"}; //johnfitz changed default to zero
+cvar_t	gl_flashblend = {"gl_flashblend","1"};
 cvar_t	gl_playermip = {"gl_playermip","0"};
 cvar_t	gl_nocolors = {"gl_nocolors","0"};
 cvar_t	gl_keeptjunctions = {"gl_keeptjunctions","0"};
@@ -99,16 +100,13 @@ cvar_t	gl_doubleeyes = {"gl_doubleeys", "1"};
 
 //johnfitz -- new cvars
 cvar_t	r_clearcolor = {"r_clearcolor","2", true};
-//cvar_t	r_fullbright_world = {"r_fullbright_world","0"};
-//cvar_t	r_fullbright_bmodels = {"r_fullbright_bmodels","0"};
-//cvar_t	r_fullbright_bspmodels = {"r_fullbright_bspmodels","1"};
-//cvar_t	r_fullbright_models = {"r_fullbright_models","0"};
-//cvar_t	r_fullbright_particles = {"r_fullbright_particles","1"};
 cvar_t	r_particles = {"r_particles","1", true};
 cvar_t	r_drawflat = {"r_drawflat","0"};
-//cvar_t	_gl_texturemode = {"_gl_texturemode", "GL_LINEAR_MIPMAP_LINEAR", true};
+cvar_t	r_flatlightstyles = {"r_flatlightstyles", "0"};
 cvar_t	gl_fullbrights = {"gl_fullbrights", "1", true};
 cvar_t	gl_farclip = {"gl_farclip", "8192", true};
+cvar_t	gl_overbright_models = {"gl_overbright_models", "0", true};
+//cvar_t	_gl_texturemode = {"_gl_texturemode", "GL_LINEAR_MIPMAP_LINEAR", true};
 //johnfitz
 
 extern	cvar_t	gl_ztrick;
@@ -129,7 +127,11 @@ qboolean R_CullBox (vec3_t mins, vec3_t maxs)
 	return false;
 }
 
-
+/*
+===============
+R_RotateForEntity
+===============
+*/
 void R_RotateForEntity (entity_t *e)
 {
     glTranslatef (e->origin[0],  e->origin[1],  e->origin[2]);
@@ -198,7 +200,6 @@ mspriteframe_t *R_GetSpriteFrame (entity_t *currententity)
 	return pspriteframe;
 }
 
-
 /*
 =================
 R_DrawSpriteModel -- johnfitz -- rewritten: now supports all orientations
@@ -210,7 +211,7 @@ void R_DrawSpriteModel (entity_t *e)
 	msprite_t		*psprite;
 	mspriteframe_t	*frame;
 	float			*s_up, *s_right;
-	float			angle, sr, cr, sh, th;
+	float			angle, sr, cr, sh, th, len;
 
 	// don't even bother culling, because it's just a single polygon without a surface cache
 	frame = R_GetSpriteFrame (e);
@@ -264,9 +265,9 @@ void R_DrawSpriteModel (entity_t *e)
 		return;
 	}
 
-	//TEST -- move decals towards camera
+	//johnfitz: offset decals
 	if (psprite->type == SPR_ORIENTED)
-		VectorSubtract(e->origin, vpn, e->origin);
+		GL_PolygonOffset (OFFSET_DECAL);
 
 	//johnfitz: since texture dimentions are padded to 2^n, tex coords will not be 0-1
 	//FIXME: these should not be calculated each frame
@@ -306,9 +307,9 @@ void R_DrawSpriteModel (entity_t *e)
 
 	glDisable (GL_ALPHA_TEST);
 
-	//TEST -- restore decals origin
+	//johnfitz: offset decals
 	if (psprite->type == SPR_ORIENTED)
-		VectorAdd(e->origin, vpn, e->origin);
+		GL_PolygonOffset (OFFSET_NONE);
 }
 
 /*
@@ -402,7 +403,17 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 		do
 		{
 			// texture coordinates come from the draw list
-			glTexCoord2f (hscale*((float *)order)[0], vscale*((float *)order)[1]); //johnfitz -- padded skins
+
+			//johnfitz -- fullbrights in multitexture
+			if(mtexenabled)
+			{
+				qglMTexCoord2fSGIS (TEXTURE0_SGIS, hscale*((float *)order)[0], vscale*((float *)order)[1]);
+				qglMTexCoord2fSGIS (TEXTURE1_SGIS, hscale*((float *)order)[0], vscale*((float *)order)[1]);
+			}
+			else
+				glTexCoord2f (hscale*((float *)order)[0], vscale*((float *)order)[1]);
+			//johnfitz
+
 			order += 2;
 
 			//johnfitz -- fullbright models
@@ -554,45 +565,23 @@ void R_SetupAliasFrame (int frame, aliashdr_t *paliashdr)
 	GL_DrawAliasFrame (paliashdr, pose);
 }
 
-
-
 /*
 =================
-R_DrawAliasModel
-
+R_SetupAliasLighting -- johnfitz -- broken out from R_DrawAliasModel
 =================
 */
-void R_DrawAliasModel (entity_t *e)
+void R_SetupAliasLighting ()
 {
-	int			i, j;
-	int			lnum;
+	entity_t	*e;
+	model_t		*mod;
 	vec3_t		dist;
-	float		add;
-	model_t		*clmodel;
-	vec3_t		mins, maxs;
-	aliashdr_t	*paliashdr;
-	trivertx_t	*verts, *v;
-	int			index;
-	float		s, t, an;
-	int			anim;
+	float		add, an;
+	int			lnum, i;
 
-	clmodel = currententity->model;
+	e = currententity;
+	mod = e->model;
 
-	VectorAdd (currententity->origin, clmodel->mins, mins);
-	VectorAdd (currententity->origin, clmodel->maxs, maxs);
-
-	if (R_CullBox (mins, maxs))
-		return;
-
-
-	VectorCopy (currententity->origin, r_entorigin);
-	VectorSubtract (r_origin, r_entorigin, modelorg);
-
-	//
-	// get lighting information
-	//
-
-	ambientlight = shadelight = R_LightPoint (currententity->origin);
+	ambientlight = shadelight = R_LightPoint (e->origin);
 
 	// allways give the gun some light
 	if (e == &cl.viewent && ambientlight < 24)
@@ -627,19 +616,19 @@ void R_DrawAliasModel (entity_t *e)
 		if (ambientlight < 8)
 			ambientlight = shadelight = 8;
 
-	// HACK HACK HACK -- no fullbright colors, so make torches full light
-	//johnfitz -- other models too
-	if (!strcmp (clmodel->name, "progs/flame2.mdl") ||
-		!strcmp (clmodel->name, "progs/flame.mdl") ||
-		!strcmp (clmodel->name, "progs/bolt.mdl") ||
-		!strcmp (clmodel->name, "progs/bolt2.mdl") ||
-		!strcmp (clmodel->name, "progs/bolt3.mdl") ||
-		!strcmp (clmodel->name, "progs/lavaball.mdl") ||
-		!strcmp (clmodel->name, "progs/boss.mdl") ||
-		!strcmp (clmodel->name, "progs/laser.mdl") ||
-		!strcmp (clmodel->name, "progs/k_spike.mdl") ||
-		!strcmp (clmodel->name, "progs/w_spike.mdl"))
-		ambientlight = shadelight = 256;
+	//johnfitz -- hack up the brightness when fullbrights but no overbrights
+	if (gl_fullbrights.value && !gl_overbright_models.value)
+		if (!strcmp (mod->name, "progs/flame2.mdl") ||
+			!strcmp (mod->name, "progs/flame.mdl") ||
+		//	!strcmp (mod->name, "progs/bolt.mdl") ||
+		//	!strcmp (mod->name, "progs/bolt2.mdl") ||
+		//	!strcmp (mod->name, "progs/bolt3.mdl") ||
+		//	!strcmp (mod->name, "progs/laser.mdl") ||
+		//	!strcmp (mod->name, "progs/k_spike.mdl") ||
+		//	!strcmp (mod->name, "progs/w_spike.mdl") ||
+		//	!strcmp (mod->name, "progs/lavaball.mdl") ||
+			!strcmp (mod->name, "progs/boss.mdl"))
+			ambientlight = shadelight = 256;
 
 	shadedots = r_avertexnormal_dots[((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1)];
 	shadelight = shadelight / 200.0;
@@ -649,19 +638,39 @@ void R_DrawAliasModel (entity_t *e)
 	shadevector[1] = sin(-an);
 	shadevector[2] = 1;
 	VectorNormalize (shadevector);
+}
 
-	//
-	// locate the proper data
-	//
+/*
+=================
+R_DrawAliasModel
+
+=================
+*/
+void R_DrawAliasModel (entity_t *e)
+{
+	aliashdr_t	*paliashdr;
+	trivertx_t	*verts, *v;
+	model_t		*clmodel;
+	vec3_t		mins, maxs;
+	float		s, t;
+	int			i, anim, index, texnum, fb; //johnfitz;
+
+	clmodel = currententity->model;
+
+	VectorAdd (currententity->origin, clmodel->mins, mins);
+	VectorAdd (currententity->origin, clmodel->maxs, maxs);
+
+	if (R_CullBox (mins, maxs))
+		return;
+
+	VectorCopy (currententity->origin, r_entorigin);
+	VectorSubtract (r_origin, r_entorigin, modelorg);
+
+	R_SetupAliasLighting (); //johnfitz
+
 	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
 
-	c_alias_polys += paliashdr->numtris;
-
-	//
-	// draw all the triangles
-	//
-
-	GL_DisableMultitexture();
+	rs_aliaspolys += paliashdr->numtris;
 
     glPushMatrix ();
 	R_RotateForEntity (e);
@@ -675,32 +684,104 @@ void R_DrawAliasModel (entity_t *e)
 		glScalef (paliashdr->scale[0], paliashdr->scale[1], paliashdr->scale[2]);
 	}
 
-	anim = (int)(cl.time*10) & 3;
-    GL_Bind(paliashdr->gl_texturenum[currententity->skinnum][anim]);
+// johnfitz -- draw model with possible fullbright mask and overbrightening
+	if (gl_smoothmodels.value && !r_drawflat.value)
+		glShadeModel (GL_SMOOTH);
+	if (gl_affinemodels.value)
+		glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
+	if (mtexenabled)
+		GL_DisableMultitexture();
 
-	// we can't dynamically colormap textures, so they are cached
-	// seperately for the players.  Heads are just uncolored.
+	// set up textures
+	anim = (int)(cl.time*10) & 3;
+	texnum = paliashdr->gl_texturenum[currententity->skinnum][anim];
+	fb = paliashdr->fullbrightmasks[currententity->skinnum][anim];
 	if (currententity->colormap != vid.colormap && !gl_nocolors.value)
 	{
 		i = currententity - cl_entities;
 		if (i >= 1 && i<=cl.maxclients /* && !strcmp (currententity->model->name, "progs/player.mdl") */)
-		    GL_Bind(playertextures - 1 + i);
+		    texnum = playertextures - 1 + i;
+	}
+	if (!gl_fullbrights.value || r_drawflat.value || r_fullbright.value)
+		fb = -1;
+
+	//
+	// draw it
+	//
+	if (gl_overbright_models.value)
+	{
+		//FIXME: add path for overbright using multitexture
+
+		//overbright without multitexture
+		GL_Bind(texnum);
+		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+		R_SetupAliasFrame (currententity->frame, paliashdr);
+
+		glEnable(GL_BLEND);
+		glBlendFunc (GL_ONE, GL_ONE);
+		R_SetupAliasFrame (currententity->frame, paliashdr);
+		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glDisable(GL_BLEND);
+
+		if (fb != -1) //fullbright mask seperately
+		{
+			GL_Bind(fb);
+			glEnable(GL_BLEND);
+			glDepthMask(GL_FALSE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glDepthMask(GL_TRUE);
+			glDisable(GL_BLEND);
+		}
+	}
+	else
+	{
+		if (fb == -1) //case 1: no fullbright mask
+		{		
+			GL_Bind(texnum);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+		}
+		else if(gl_mtexable) //case 2: fullbright mask using multitexture
+		{
+			GL_SelectTexture(TEXTURE0_SGIS);
+			GL_Bind (texnum);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+			GL_EnableMultitexture(); // selects TEXTURE1_SGIS 
+			GL_Bind (fb);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+			glEnable(GL_BLEND);
+
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+
+			glDisable(GL_BLEND);
+			GL_DisableMultitexture();
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
+		}
+		else //case 3: fullbright mask without multitexture
+		{
+			GL_Bind(texnum);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
+			
+			GL_Bind(fb);
+			glEnable(GL_BLEND);
+			glDepthMask(GL_FALSE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glDepthMask(GL_TRUE);
+			glDisable(GL_BLEND);
+		}
 	}
 
-	if (gl_smoothmodels.value && !r_drawflat.value) //johnfitz -- r_drawflat
-		glShadeModel (GL_SMOOTH);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-	if (gl_affinemodels.value)
-		glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
-
-	R_SetupAliasFrame (currententity->frame, paliashdr);
-
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-
-	glShadeModel (GL_FLAT);
+	if (gl_smoothmodels.value && !r_drawflat.value)
+		glShadeModel (GL_FLAT);
 	if (gl_affinemodels.value)
 		glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
+// johnfitz
+
 
 	glPopMatrix ();
 
@@ -729,19 +810,20 @@ R_DrawEntitiesOnList
 */
 void R_DrawEntitiesOnList (void)
 {
+	extern cvar_t r_vfog; //johnfitz
 	int		i;
 
 	if (!r_drawentities.value)
 		return;
 
-	// draw sprites seperately, because of alpha blending
+	//johnfitz -- sprites are not a special case
 	for (i=0 ; i<cl_numvisedicts ; i++)
 	{
 		currententity = cl_visedicts[i];
 
 		//johnfitz -- chasecam
 		if (currententity == &cl_entities[cl.viewentity])
-			return;
+			continue;
 		//johnfitz
 
 		switch (currententity->model->type)
@@ -749,24 +831,22 @@ void R_DrawEntitiesOnList (void)
 		case mod_alias:
 			R_DrawAliasModel (currententity);
 			break;
-
+#if 0
+		//johnfitz -- if vfog disabled, treat fog as a normal bmodel
+		case mod_fog:
+			if (!r_vfog.value)
+				R_DrawBrushModel (currententity);
+			break;
+#endif
 		case mod_brush:
 			R_DrawBrushModel (currententity);
 			break;
 
-		default:
-			break;
-		}
-	}
-
-	for (i=0 ; i<cl_numvisedicts ; i++)
-	{
-		currententity = cl_visedicts[i];
-
-		switch (currententity->model->type)
-		{
 		case mod_sprite:
 			R_DrawSpriteModel (currententity);
+			break;
+
+		default:
 			break;
 		}
 	}
@@ -955,7 +1035,7 @@ void R_SetFrustum (void)
 	for (i=0 ; i<4 ; i++)
 	{
 		frustum[i].type = PLANE_ANYZ;
-		frustum[i].dist = DotProduct (r_origin, frustum[i].normal);
+		frustum[i].dist = DotProduct (r_origin, frustum[i].normal); //FIXME: shouldn't this always be zero?
 		frustum[i].signbits = SignbitsForPlane (&frustum[i]);
 	}
 }
@@ -1000,10 +1080,8 @@ void R_SetupFrame (void)
 
 	r_cache_thrash = false;
 
-	c_brush_polys = 0;
-	c_alias_polys = 0;
-	c_sky_polys = 0; //johnfitz
-
+	//johnfitz -- rendering statistics
+	rs_brushpolys = rs_aliaspolys = rs_skypolys = rs_particles = rs_fogpolys = rs_dynamiclightmaps = 0;
 }
 
 /*
@@ -1148,6 +1226,8 @@ void R_RenderScene (void)
 
 	R_DrawWaterSurfaces (); //johnfitz -- moved here from R_RenderView() -- particle z-buffer bug
 
+	Fog_DrawVFog (); //johnfitz
+
 	if (r_drawflat.value)
 		srand ((int) (cl.time * 1000)); //johnfitz -- reset rand() after abusing it for r_drawflat
 
@@ -1161,20 +1241,53 @@ void R_RenderScene (void)
 
 }
 
+/*
+=============
+GL_PolygonOffset -- johnfitz
+
+negative offset moves polygon closer to camera
+=============
+*/
+void GL_PolygonOffset (int offset)
+{
+	if (offset)
+	{
+		glEnable (GL_POLYGON_OFFSET_FILL);
+
+		if (offset > 0)
+			glPolygonOffset(1, offset);
+		else
+			glPolygonOffset(-1, offset);
+	}
+	else
+		glDisable (GL_POLYGON_OFFSET_FILL);
+}
 
 /*
 =============
-R_Clear
+R_Clear -- johnfitz -- rewritten
 =============
 */
-int ztrickframe = 0; //johnfitz -- made global so that i can access it in the sky code
+int ztrickframe = 0;
 void R_Clear (void)
 {
+	extern int gl_stencilbits;
+	unsigned int clearbits = 0;
+
+	// clear buffers
+
+	if (gl_clear.value)
+		clearbits |= GL_COLOR_BUFFER_BIT;
+	if (!gl_ztrick.value)
+		clearbits |= GL_DEPTH_BUFFER_BIT;
+	if (gl_stencilbits)
+		clearbits |= GL_STENCIL_BUFFER_BIT;
+	glClear (clearbits);
+
+	// set depthrange
+
 	if (gl_ztrick.value)
 	{
-		if (gl_clear.value)
-			glClear (GL_COLOR_BUFFER_BIT);
-
 		ztrickframe++;
 		if (ztrickframe & 1)
 		{
@@ -1191,15 +1304,10 @@ void R_Clear (void)
 	}
 	else
 	{
-		if (gl_clear.value)
-			glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		else
-			glClear (GL_DEPTH_BUFFER_BIT);
 		gldepthmin = 0;
 		gldepthmax = 1;
 		glDepthFunc (GL_LEQUAL);
 	}
-
 	glDepthRange (gldepthmin, gldepthmax);
 }
 
@@ -1224,11 +1332,8 @@ void R_RenderView (void)
 	{
 		glFinish ();
 		time1 = Sys_FloatTime ();
-		c_brush_polys = 0;
-		c_alias_polys = 0;
 	}
-
-	if (gl_finish.value)
+	else if (gl_finish.value)
 		glFinish ();
 
 	R_Clear ();
@@ -1242,7 +1347,7 @@ void R_RenderView (void)
 	if (r_speeds.value)
 	{
 		time2 = Sys_FloatTime ();
-		Con_Printf ("%3i ms  %4i wpoly %4i epoly %4i sky %4i part\n", (int)((time2-time1)*1000), c_brush_polys, c_alias_polys, c_sky_polys, c_particle_polys);
+		Con_Printf ("%3i ms  %4i wpoly %4i epoly %4i lmap %4i sky\n", (int)((time2-time1)*1000), rs_brushpolys, rs_aliaspolys, rs_dynamiclightmaps, rs_skypolys);
 	}
 }
 

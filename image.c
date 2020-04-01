@@ -308,7 +308,7 @@ byte *Image_LoadPCX (FILE *f, int *width, int *height)
 	for (y=0 ; y<=pcx->ymax ; y++)
 	{
 		pix = pcx_rgb + 4*y*(pcx->xmax+1);
-		for (x=0 ; x<=pcx->ymax ; )
+		for (x=0 ; x<=pcx->ymax ; ) //FIXME -- should this be xmax?
 		{
 			dataByte = fgetc(f);
 

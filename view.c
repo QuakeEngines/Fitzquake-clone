@@ -249,62 +249,15 @@ void V_DriftPitch (void)
  
 ============================================================================== 
 */ 
- 
- 
+
 cshift_t	cshift_empty = { {130,80,50}, 0 };
 cshift_t	cshift_water = { {130,80,50}, 128 };
 cshift_t	cshift_slime = { {0,25,5}, 150 };
 cshift_t	cshift_lava = { {255,80,0}, 150 };
 
-cvar_t		v_gamma = {"gamma", "1", true};
-
-byte		gammatable[256];	// palette is sent through this
-
-byte		ramps[3][256];
 float		v_blend[4];		// rgba 0.0 - 1.0
 
-void BuildGammaTable (float g)
-{
-	int		i, inf;
-	
-	if (g == 1.0)
-	{
-		for (i=0 ; i<256 ; i++)
-			gammatable[i] = i;
-		return;
-	}
-	
-	for (i=0 ; i<256 ; i++)
-	{
-		inf = 255 * pow ( (i+0.5)/255.5 , g ) + 0.5;
-		if (inf < 0)
-			inf = 0;
-		if (inf > 255)
-			inf = 255;
-		gammatable[i] = inf;
-	}
-}
-
-/*
-=================
-V_CheckGamma
-=================
-*/
-qboolean V_CheckGamma (void)
-{
-	static float oldgammavalue;
-	
-	if (v_gamma.value == oldgammavalue)
-		return false;
-	oldgammavalue = v_gamma.value;
-	
-	BuildGammaTable (v_gamma.value);
-	vid.recalc_refdef = 1;				// force a surface cache flush
-	
-	return true;
-}
-
-
+//johnfitz -- deleted BuildGammaTable(), V_CheckGamma(), gammatable[], and ramps[][]
 
 /*
 ===============
@@ -492,12 +445,9 @@ void V_CalcBlend (void)
 			continue;
 
 		a2 = ((cl.cshifts[j].percent * gl_cshiftpercent.value) / 100.0) / 255.0;
-
-//		a2 = cl.cshifts[j].percent/255.0;
 		if (!a2)
 			continue;
 		a = a + a2*(1-a);
-//Con_Printf ("j:%i a:%f\n", j, a);
 		a2 = a2/a;
 		r = r*(1-a2) + cl.cshifts[j].destcolor[0]*a2;
 		g = g*(1-a2) + cl.cshifts[j].destcolor[1]*a2;
@@ -516,34 +466,29 @@ void V_CalcBlend (void)
 
 /*
 =============
-V_UpdatePalette
+V_UpdateBlend -- johnfitz -- V_UpdatePalette cleaned up and renamed
 =============
 */
-void V_UpdatePalette (void)
+void V_UpdateBlend (void)
 {
 	int		i, j;
-	qboolean	new;
-	byte	*basepal, *newpal;
-	byte	pal[768];
-	float	r,g,b,a;
-	int		ir, ig, ib;
-	qboolean force;
+	qboolean	blend_changed;
 
 	V_CalcPowerupCshift ();
 	
-	new = false;
+	blend_changed = false;
 	
 	for (i=0 ; i<NUM_CSHIFTS ; i++)
 	{
 		if (cl.cshifts[i].percent != cl.prev_cshifts[i].percent)
 		{
-			new = true;
+			blend_changed = true;
 			cl.prev_cshifts[i].percent = cl.cshifts[i].percent;
 		}
 		for (j=0 ; j<3 ; j++)
 			if (cl.cshifts[i].destcolor[j] != cl.prev_cshifts[i].destcolor[j])
 			{
-				new = true;
+				blend_changed = true;
 				cl.prev_cshifts[i].destcolor[j] = cl.cshifts[i].destcolor[j];
 			}
 	}
@@ -558,52 +503,8 @@ void V_UpdatePalette (void)
 	if (cl.cshifts[CSHIFT_BONUS].percent <= 0)
 		cl.cshifts[CSHIFT_BONUS].percent = 0;
 
-	force = V_CheckGamma ();
-	if (!new && !force)
-		return;
-
-	V_CalcBlend ();
-
-	a = v_blend[3];
-	r = 255*v_blend[0]*a;
-	g = 255*v_blend[1]*a;
-	b = 255*v_blend[2]*a;
-
-	a = 1-a;
-	for (i=0 ; i<256 ; i++)
-	{
-		ir = i*a + r;
-		ig = i*a + g;
-		ib = i*a + b;
-		if (ir > 255)
-			ir = 255;
-		if (ig > 255)
-			ig = 255;
-		if (ib > 255)
-			ib = 255;
-
-		ramps[0][i] = gammatable[ir];
-		ramps[1][i] = gammatable[ig];
-		ramps[2][i] = gammatable[ib];
-	}
-
-	basepal = host_basepal;
-	newpal = pal;
-	
-	for (i=0 ; i<256 ; i++)
-	{
-		ir = basepal[0];
-		ig = basepal[1];
-		ib = basepal[2];
-		basepal += 3;
-		
-		newpal[0] = ramps[0][ir];
-		newpal[1] = ramps[1][ig];
-		newpal[2] = ramps[2][ib];
-		newpal += 3;
-	}
-
-	VID_ShiftPalette (pal);	
+	if (blend_changed)
+		V_CalcBlend ();
 }
 
 /* 
@@ -1038,9 +939,6 @@ void V_Init (void)
 	Cvar_RegisterVariable (&v_kicktime, NULL);
 	Cvar_RegisterVariable (&v_kickroll, NULL);
 	Cvar_RegisterVariable (&v_kickpitch, NULL);	
-	
-	BuildGammaTable (1.0);	// no gamma yet
-	Cvar_RegisterVariable (&v_gamma, NULL);
 }
 
 

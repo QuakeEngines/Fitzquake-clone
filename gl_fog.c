@@ -17,7 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
-//gl_fog.c -- fitzquake fog code
+//gl_fog.c -- global and volumetric fog
 
 #include "quakedef.h"
 
@@ -41,17 +41,17 @@ float old_red;
 float old_green;
 float old_blue;
 
-float fade_time = 0.0; //duration of fade
-float fade_done = 0.0; //time when fade will be done
+float fade_time; //duration of fade
+float fade_done; //time when fade will be done
 
 /*
 =============
-Fog_Parse
+Fog_Update
 
-update internal variables whenever an SVC_FOG or console fog command is issued
+update internal variables
 =============
 */
-void Fog_Parse (float density, float red, float green, float blue, float time)
+void Fog_Update (float density, float red, float green, float blue, float time)
 {
 	//save previous settings for fade
 	if (time > 0)
@@ -86,9 +86,29 @@ void Fog_Parse (float density, float red, float green, float blue, float time)
 
 /*
 =============
+Fog_ParseServerMessage
+
+handle an SVC_FOG message from server
+=============
+*/
+void Fog_ParseServerMessage (void)
+{
+	float density, red, green, blue, time;
+
+	density = MSG_ReadByte() / 255.0;
+	red = MSG_ReadByte() / 255.0;
+	green = MSG_ReadByte() / 255.0;
+	blue = MSG_ReadByte() / 255.0;
+	time = max(0.0, MSG_ReadShort() / 100.0);
+	
+	Fog_Update (density, red, green, blue, time);
+}
+
+/*
+=============
 Fog_FogCommand_f
 
-called to handle the 'fog' console command
+handle the 'fog' console command
 =============
 */
 void Fog_FogCommand_f (void)
@@ -108,57 +128,60 @@ void Fog_FogCommand_f (void)
 		Con_Printf("   \"blue\" is \"%f\"\n", fog_blue);
 		break;
 	case 2:
-		Fog_Parse(max(0.0, atof(Cmd_Argv(1))),
-				  fog_red,
-				  fog_green,
-				  fog_blue,
-				  0.0);
+		Fog_Update(max(0.0, atof(Cmd_Argv(1))),
+				   fog_red,
+				   fog_green,
+				   fog_blue,
+				   0.0);
 		break;
 	case 3: //TEST
-		Fog_Parse(max(0.0, atof(Cmd_Argv(1))),
-				  fog_red,
-				  fog_green,
-				  fog_blue,
-				  atof(Cmd_Argv(2)));
+		Fog_Update(max(0.0, atof(Cmd_Argv(1))),
+				   fog_red,
+				   fog_green,
+				   fog_blue,
+				   atof(Cmd_Argv(2)));
 		break;
 	case 4:
-		Fog_Parse(fog_density,
-				  Clamp(0.0, atof(Cmd_Argv(2)), 1.0),
-				  Clamp(0.0, atof(Cmd_Argv(3)), 1.0),
-				  Clamp(0.0, atof(Cmd_Argv(4)), 1.0),
-				  0.0);
+		Fog_Update(fog_density,
+				   CLAMP(0.0, atof(Cmd_Argv(1)), 1.0),
+				   CLAMP(0.0, atof(Cmd_Argv(2)), 1.0),
+				   CLAMP(0.0, atof(Cmd_Argv(3)), 1.0),
+				   0.0);
 		break;
 	case 5:
-		Fog_Parse(max(0.0, atof(Cmd_Argv(1))),
-				  Clamp(0.0, atof(Cmd_Argv(2)), 1.0),
-				  Clamp(0.0, atof(Cmd_Argv(3)), 1.0),
-				  Clamp(0.0, atof(Cmd_Argv(4)), 1.0),
-				  0.0);
+		Fog_Update(max(0.0, atof(Cmd_Argv(1))),
+				   CLAMP(0.0, atof(Cmd_Argv(2)), 1.0),
+				   CLAMP(0.0, atof(Cmd_Argv(3)), 1.0),
+				   CLAMP(0.0, atof(Cmd_Argv(4)), 1.0),
+				   0.0);
 		break;
 	case 6: //TEST
-		Fog_Parse(max(0.0, atof(Cmd_Argv(1))),
-				  Clamp(0.0, atof(Cmd_Argv(2)), 1.0),
-				  Clamp(0.0, atof(Cmd_Argv(3)), 1.0),
-				  Clamp(0.0, atof(Cmd_Argv(4)), 1.0),
-				  atof(Cmd_Argv(5)));
+		Fog_Update(max(0.0, atof(Cmd_Argv(1))),
+				   CLAMP(0.0, atof(Cmd_Argv(2)), 1.0),
+				   CLAMP(0.0, atof(Cmd_Argv(3)), 1.0),
+				   CLAMP(0.0, atof(Cmd_Argv(4)), 1.0),
+				   atof(Cmd_Argv(5)));
 		break;
 	}
 }
 
 /*
 =============
-Fog_NewMap
+Fog_ParseWorldspawn
 
-called whenever a map is loaded
+called at map load
 =============
 */
-void Fog_NewMap (void)
+void Fog_ParseWorldspawn (void)
 {
 	char key[128], value[4096];
 	char *data;
 
 	//initially no fog
-	fog_density = 0;
+	fog_density = 0.0;
+	old_density = 0.0;
+	fade_time = 0.0;
+	fade_done = 0.0;
 
 	data = COM_Parse(cl.worldmodel->entities);
 	if (!data)
@@ -188,30 +211,6 @@ void Fog_NewMap (void)
 			sscanf(value, "%f %f %f %f", &fog_density, &fog_red, &fog_green, &fog_blue);
 		}
 	}
-}
-
-/*
-=============
-Fog_Init
-
-called when quake initializes
-=============
-*/
-void Fog_Init (void)
-{
-	fog_density = 0.0;
-	fog_red = 0.3;
-	fog_green = 0.3;
-	fog_blue = 0.3;
-
-	Cmd_AddCommand ("fog",Fog_FogCommand_f);
-
-#ifdef FOGEXP2
-	glFogi(GL_FOG_MODE, GL_EXP2);
-#else
-	glFogi(GL_FOG_START, 0);
-	glFogi(GL_FOG_MODE, GL_LINEAR);
-#endif
 }
 
 /*
@@ -249,8 +248,28 @@ void Fog_SetupFrame (void)
 #ifdef FOGEXP2
 	glFogf(GL_FOG_DENSITY, d / 64.0);
 #else
-	glFogf(GL_FOG_END, 96.0 / d);
+	glFogf(GL_FOG_END, 96.0 / max(d, 0.000001)); //don't divide by zero
 #endif
+}
+
+/*
+=============
+Fog_GetDensity
+
+returns current density of fog
+=============
+*/
+float Fog_GetDensity (void)
+{
+	float f;
+
+	if (fade_done > cl.time)
+	{
+		f = (fade_done - cl.time) / fade_time;
+		return f * old_density + (1.0 - f) * fog_density; 
+	}
+	else
+		return fog_density;
 }
 
 /*
@@ -262,22 +281,7 @@ called before drawing stuff that should be fogged
 */
 void Fog_EnableGFog (void)
 {
-	float f, d;
-
-	if (r_drawflat.value)
-		return;
-
-	if (fade_done > cl.time)
-	{
-		f = (fade_done - cl.time) / fade_time;
-		d = f * old_density + (1.0 - f) * fog_density;
-	}
-	else
-	{
-		d = fog_density;
-	}
-
-	if (d > 0)
+	if (Fog_GetDensity() > 0 && !r_drawflat.value)
 		glEnable(GL_FOG);
 }
 
@@ -290,35 +294,20 @@ called after drawing stuff that should be fogged
 */
 void Fog_DisableGFog (void)
 {
-	float f, d;
-
-	if (r_drawflat.value)
-		return;
-
-	if (fade_done > cl.time)
-	{
-		f = (fade_done - cl.time) / fade_time;
-		d = f * old_density + (1.0 - f) * fog_density;
-	}
-	else
-	{
-		d = fog_density;
-	}
-
-	if (d > 0)
+	if (Fog_GetDensity() > 0 && !r_drawflat.value)
 		glDisable(GL_FOG);
 }
 
 /*
 =============
-Fog_ColorForSky
+Fog_SetColorForSky
 
 called before drawing flat-colored sky
 =============
 */
-void Fog_ColorForSky (void)
+void Fog_SetColorForSky (void)
 {
-	float c[4];
+	float c[3];
 	float f, d;
 
 	if (fade_done > cl.time)
@@ -338,5 +327,58 @@ void Fog_ColorForSky (void)
 	}
 
 	if (d > 0)
-		glColor3f (c[0], c[1], c[2]);
+		glColor3fv (c);
+}
+
+//==============================================================================
+//
+//  VOLUMETRIC FOG
+//
+//==============================================================================
+
+//removed for now
+
+void Fog_DrawVFog (void){}
+
+//==============================================================================
+//
+//  INIT
+//
+//==============================================================================
+
+/*
+=============
+Fog_NewMap
+
+called whenever a map is loaded
+=============
+*/
+void Fog_NewMap (void)
+{
+	Fog_ParseWorldspawn (); //for global fog
+}
+
+/*
+=============
+Fog_Init
+
+called when quake initializes
+=============
+*/
+void Fog_Init (void)
+{
+	Cmd_AddCommand ("fog",Fog_FogCommand_f);
+
+	//set up global fog
+	fog_density = 0.0;
+	fog_red = 0.3;
+	fog_green = 0.3;
+	fog_blue = 0.3;
+
+#ifdef FOGEXP2
+	glFogi(GL_FOG_MODE, GL_EXP2);
+#else
+	glFogi(GL_FOG_START, 0);
+	glFogi(GL_FOG_MODE, GL_LINEAR);
+#endif
 }

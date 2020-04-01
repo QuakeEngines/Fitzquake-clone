@@ -31,7 +31,7 @@ extern int skybox_texnum; //johnfitz
 extern unsigned char d_15to8table[65536];
 
 cvar_t		gl_nobind = {"gl_nobind", "0"};
-cvar_t		gl_max_size = {"gl_max_size", "1024"};
+cvar_t		gl_max_size = {"gl_max_size", "0"}; //johnfitz -- zero to disable user clamping
 cvar_t		gl_picmip = {"gl_picmip", "0"};
 
 cvar_t		scr_stretch_menus = {"scr_stretch_menus", "1", true}; //johnfitz
@@ -56,6 +56,8 @@ int		gl_alpha_format = 4;
 int		gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
 int		gl_filter_max = GL_LINEAR;
 
+int		gl_hardware_maxsize; //johnfitz
+int		gl_stencilbits; //johnfitz
 
 int		texels;
 
@@ -355,6 +357,9 @@ void Draw_NewGame (void)
 	cachepic_t	*pic;
 	int			i;
 
+	// reset numgltextures
+	numgltextures = 0;
+
 	// empty scrap
 	memset(&scrap_allocated, 0, sizeof(scrap_allocated));
 
@@ -472,7 +477,6 @@ Draw_Init -- johnfitz -- rewritten
 */
 void Draw_Init (void)
 {
-
 	Cvar_RegisterVariable (&gl_nobind, NULL);
 	Cvar_RegisterVariable (&gl_max_size, NULL);
 	Cvar_RegisterVariable (&gl_picmip, NULL);
@@ -480,13 +484,20 @@ void Draw_Init (void)
 	Cvar_RegisterVariable (&scr_stretch_menus, NULL); //johnfitz
 
 	Cmd_AddCommand ("gl_texturemode", &Draw_TextureMode_f);
+	
+	//poll max size from hardware
+	glGetIntegerv (GL_MAX_TEXTURE_SIZE, &gl_hardware_maxsize);
 
-	// 3dfx can only handle 256 wide textures
-	if (!Q_strncasecmp ((char *)gl_renderer, "3dfx",4) ||
-		strstr((char *)gl_renderer, "Glide"))
-		Cvar_Set ("gl_max_size", "256");
+#if 0
+	//johnfitz -- confirm presence of stencil buffer
+	glGetIntegerv(GL_STENCIL_BITS, &gl_stencilbits);
+	if(!gl_stencilbits)
+		Con_Printf ("WARNING: Could not create stencil buffer\n");
+	else
+		Con_Printf ("%i bit stencil buffer\n", gl_stencilbits);
+#endif
 
-	// save a texture slot for translated picture
+	// save a texture slot for translated picture (for the setup menu)
 	translate_texture = texture_extension_number++;
 
 	// save slots for scraps
@@ -625,6 +636,7 @@ void Draw_AlphaPic (int x, int y, qpic_t *pic, float alpha)
 	gl = (glpic_t *)pic->data;
 	glDisable(GL_ALPHA_TEST);
 	glEnable (GL_BLEND);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); //johnfitz -- fix con alpha
 //	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 //	glCullFace(GL_FRONT);
 	glColor4f (1,1,1,alpha);
@@ -642,6 +654,7 @@ void Draw_AlphaPic (int x, int y, qpic_t *pic, float alpha)
 	glColor4f (1,1,1,1);
 	glEnable(GL_ALPHA_TEST);
 	glDisable (GL_BLEND);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); //johnfitz -- fix con alpha
 }
 
 /*
@@ -1002,14 +1015,9 @@ void GL_Set2D (void)
 
 //==============================================================================
 //
-//  TEXTURE UPLOADING
+//  TEXTURE LOADING
 //
 //==============================================================================
-
-//johnfitz -- new stuff for texture loading
-#define MAX_LOADIMAGE 1024*1024
-byte loadimage[MAX_LOADIMAGE];
-//johnfitz
 
 /*
 ================
@@ -1032,32 +1040,57 @@ int GL_FindTexture (char *identifier)
 
 /*
 ================
-GL_ResampleTexture
+GL_ResampleTexture -- johnfitz -- rewritten to do use bilinear resample
 ================
 */
-void GL_ResampleTexture (unsigned *in, int inwidth, int inheight, unsigned *out,  int outwidth, int outheight)
+void GL_ResampleTexture (unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight, qboolean alpha)
 {
-	int		i, j;
-	unsigned	*inrow;
-	unsigned	frac, fracstep;
+	byte *nwpx, *nepx, *swpx, *sepx, *dest; //don't tell maj about this
+	unsigned xfrac, yfrac, x, y, modx, mody, imodx, imody, injump, outjump;
+	int i, j;
 
-	fracstep = inwidth*0x10000/outwidth;
-	for (i=0 ; i<outheight ; i++, out += outwidth)
+//double time1, time2;
+//time1 = Sys_FloatTime();
+
+	xfrac = (inwidth << 8) / outwidth;
+	yfrac = (inheight << 8) / outheight;
+	y = outjump = 0;
+
+	for (i=0; i<outheight; i++)
 	{
-		inrow = in + inwidth*(i*inheight/outheight);
-		frac = fracstep >> 1;
-		for (j=0 ; j<outwidth ; j+=4)
+		mody = y & 0xFF;
+		imody = 256 - mody;
+		injump = (y>>8) * inwidth;
+		x = 0;
+
+		for (j=0; j<outwidth; j++)
 		{
-			out[j] = inrow[frac>>16];
-			frac += fracstep;
-			out[j+1] = inrow[frac>>16];
-			frac += fracstep;
-			out[j+2] = inrow[frac>>16];
-			frac += fracstep;
-			out[j+3] = inrow[frac>>16];
-			frac += fracstep;
+			modx = x & 0xFF;
+			imodx = 256 - modx;
+
+			nwpx = (byte *)(in + (x>>8) + injump);
+			nepx = nwpx + 4; 
+			swpx = nwpx + inwidth*4;
+			sepx = swpx + 4;
+
+			dest = (byte *)(out + outjump + j);
+
+			dest[0] = (nwpx[0]*imodx*imody + nepx[0]*modx*imody + swpx[0]*imodx*mody + sepx[0]*modx*mody)>>16;
+			dest[1] = (nwpx[1]*imodx*imody + nepx[1]*modx*imody + swpx[1]*imodx*mody + sepx[1]*modx*mody)>>16;
+			dest[2] = (nwpx[2]*imodx*imody + nepx[2]*modx*imody + swpx[2]*imodx*mody + sepx[2]*modx*mody)>>16;
+			if (alpha)
+				dest[3] = (nwpx[3]*imodx*imody + nepx[3]*modx*imody + swpx[3]*imodx*mody + sepx[3]*modx*mody)>>16;
+			else
+				dest[3] = 255;
+			
+			x += xfrac;
 		}
+		outjump += outwidth;
+		y += yfrac;
 	}
+
+//time2 = Sys_FloatTime();
+//Con_SafePrintf ("GL_ResampleTexture: %i pixels in %f ms\n", outwidth*outheight,(time2-time1)*1000);
 }
 
 /*
@@ -1155,18 +1188,20 @@ void GL_MipMap8Bit (byte *in, int width, int height)
 /*
 ===============
 Neighbor -- johnfitz -- wrap lookup coords for AlphaEdgeFix
+
+TODO: make this a #define
 ===============
 */
 int Neighbor(int x, int y, int width, int height)
 {
 	if (x < 0)
-		x = width-1;
+		x += width;
 	else if (x > width-1)
-		x = 0;
+		x -= width;
 	if (y < 0)
-		y = height-1;
+		y += height;
 	else if (y > height-1)
-		y = 0;
+		y -= height;
 	return y * width + x;
 }
 
@@ -1175,6 +1210,7 @@ int Neighbor(int x, int y, int width, int height)
 AlphaEdgeFix -- johnfitz
 
 eliminate pink edges on sprites
+operates in place on 32bit data
 ===============
 */
 void AlphaEdgeFix(byte *data, int width, int height)
@@ -1193,9 +1229,9 @@ void AlphaEdgeFix(byte *data, int width, int height)
 					c = 0; //running total
 					for (ii=-1; ii<2; ii++) //for each row of neighbors
 					{
-						for (jj=-1; jj<2; jj++) //for each pixel of row
+						for (jj=-1; jj<2; jj++) //for each pixel in this row of neighbors
 						{
-							b = Neighbor(j+jj,i+ii,width,height) * 4; //neighbor position in data
+							b = Neighbor(j+jj,i+ii,width,height) * 4;
 							data[b+3] ? c += data[b+k] : n-- ;
 						}
 					}
@@ -1208,30 +1244,38 @@ void AlphaEdgeFix(byte *data, int width, int height)
 
 /*
 ===============
+GL_SafeTextureSize -- johnfitz -- return a size with hardware and user prefs in mind
+===============
+*/
+int GL_SafeTextureSize (int s)
+{
+	s = Pad(s);
+	s >>= (int)gl_picmip.value;
+	if ((int)gl_max_size.value > 0)
+		s = min((int)gl_max_size.value, s);
+	s = min(gl_hardware_maxsize, s);
+	return s;
+}
+
+/*
+===============
 GL_Upload32
 ===============
 */
 void GL_Upload32 (unsigned *data, int width, int height,  qboolean mipmap, qboolean alpha)
 {
-	int			samples;
-	static	unsigned	scaled[1024*512];	// [512*256];
-	int			scaled_width, scaled_height;
+	unsigned	*scaled; //johnfitz -- now dynamic
+	int			samples, scaled_width, scaled_height, mark;
 
-	for (scaled_width = 1 ; scaled_width < width ; scaled_width<<=1)
-		;
-	for (scaled_height = 1 ; scaled_height < height ; scaled_height<<=1)
-		;
-
-	scaled_width >>= (int)gl_picmip.value;
-	scaled_height >>= (int)gl_picmip.value;
-
-	if (scaled_width > gl_max_size.value)
-		scaled_width = gl_max_size.value;
-	if (scaled_height > gl_max_size.value)
-		scaled_height = gl_max_size.value;
-
-	if (scaled_width * scaled_height > sizeof(scaled)/4)
-		Sys_Error ("GL_LoadTexture: too big");
+	//johnfitz -- use GL_SafeTextureSize
+	scaled_width = GL_SafeTextureSize (width); 
+	scaled_height = GL_SafeTextureSize (height);
+	//johnfitz
+	
+	//johnfitz -- dynamically alloc scaled
+	mark = Hunk_LowMark();
+	scaled = Hunk_Alloc(scaled_width * scaled_height * 4);
+	//johnfitz
 
 	samples = alpha ? gl_alpha_format : gl_solid_format;
 
@@ -1252,7 +1296,7 @@ void GL_Upload32 (unsigned *data, int width, int height,  qboolean mipmap, qbool
 		memcpy (scaled, data, width*height*4);
 	}
 	else
-		GL_ResampleTexture (data, width, height, scaled, scaled_width, scaled_height);
+		GL_ResampleTexture (data, width, height, scaled, scaled_width, scaled_height, alpha); //johnfitz -- extra parameter
 
 	glTexImage2D (GL_TEXTURE_2D, 0, samples, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, scaled);
 	if (mipmap)
@@ -1285,48 +1329,29 @@ void GL_Upload32 (unsigned *data, int width, int height,  qboolean mipmap, qbool
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_max);
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 	}
+
+	Hunk_FreeToLowMark(mark); //johnfitz
 }
 
+/*
+===============
+GL_Upload8_EXT
+===============
+*/
 void GL_Upload8_EXT (byte *data, int width, int height,  qboolean mipmap, qboolean alpha) 
 {
-	int			i, s;
-	qboolean	noalpha;
-	int			p;
-	static unsigned j;
-	int			samples;
-    static	unsigned char scaled[1024*512];	// [512*256];
-	int			scaled_width, scaled_height;
+	int			i, p, samples, scaled_width, scaled_height, mark;
+    byte		*scaled; //johnfitz -- now dynamic
 
-	s = width*height;
-	// if there are no transparent pixels, make it a 3 component
-	// texture even if it was specified as otherwise
-	if (alpha)
-	{
-		noalpha = true;
-		for (i=0 ; i<s ; i++)
-		{
-			if (data[i] == 255)
-				noalpha = false;
-		}
-
-		if (alpha && noalpha)
-			alpha = false;
-	}
-	for (scaled_width = 1 ; scaled_width < width ; scaled_width<<=1)
-		;
-	for (scaled_height = 1 ; scaled_height < height ; scaled_height<<=1)
-		;
-
-	scaled_width >>= (int)gl_picmip.value;
-	scaled_height >>= (int)gl_picmip.value;
-
-	if (scaled_width > gl_max_size.value)
-		scaled_width = gl_max_size.value;
-	if (scaled_height > gl_max_size.value)
-		scaled_height = gl_max_size.value;
-
-	if (scaled_width * scaled_height > sizeof(scaled))
-		Sys_Error ("GL_LoadTexture: too big");
+	//johnfitz -- use GL_SafeTextureSize
+	scaled_width = GL_SafeTextureSize (width); 
+	scaled_height = GL_SafeTextureSize (height);
+	//johnfitz
+	
+	//johnfitz -- dynamically alloc scaled
+	mark = Hunk_LowMark();
+	scaled = Hunk_Alloc(scaled_width * scaled_height * 4);
+	//johnfitz
 
 	samples = 1; // alpha ? gl_alpha_format : gl_solid_format;
 
@@ -1376,6 +1401,8 @@ done: ;
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_max);
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 	}
+
+	Hunk_FreeToLowMark(mark); //johnfitz
 }
 
 /*
@@ -1385,12 +1412,15 @@ GL_Upload8
 */
 void GL_Upload8 (byte *data, int width, int height,  qboolean mipmap, qboolean alpha)
 {
-	static	unsigned	trans[MAX_LOADIMAGE * 4]; // FIXME, temporary //johnfitz -- now larger
-	int			i, s;
+	unsigned	*trans; //johnfitz -- now dynamically allocated
+	int			i, s, p, mark;
 	qboolean	noalpha;
-	int			p;
 
 	s = width*height;
+
+	mark = Hunk_LowMark(); //johnfitz
+	trans = Hunk_Alloc (s*4); //johnfitz
+
 	// if there are no transparent pixels, make it a 3 component
 	// texture even if it was specified as otherwise
 	if (alpha)
@@ -1411,6 +1441,7 @@ void GL_Upload8 (byte *data, int width, int height,  qboolean mipmap, qboolean a
 	{
 		if (s&3)
 			Sys_Error ("GL_Upload8: s&3");
+
 		for (i=0 ; i<s ; i+=4)
 		{
 			trans[i] = d_8to24table[data[i]];
@@ -1420,27 +1451,27 @@ void GL_Upload8 (byte *data, int width, int height,  qboolean mipmap, qboolean a
 		}
 	}
 
-	if (VID_Is8bit() && !alpha && (data!=scrap_texels[0])) {
+	if (VID_Is8bit() && !alpha && (data!=scrap_texels[0]))
  		GL_Upload8_EXT (data, width, height, mipmap, alpha);
- 		return;
-	}
-	GL_Upload32 (trans, width, height, mipmap, alpha);
-}
+	else
+		GL_Upload32 (trans, width, height, mipmap, alpha);
 
-int argh, argh2;
+	Hunk_FreeToLowMark (mark); //johnfitz
+}
 
 /*
 ================
-GL_LoadTexture  -- johnfitz -- lots of little changes, some taken from tomaz and lordhavoc
+GL_LoadTexture  -- johnfitz -- lots of little changes
 ================
 */
 int GL_LoadTexture (char *identifier, int width, int height, byte *data, qboolean mipmap, qboolean alpha)
 {
-	qboolean	noalpha;
-	int			i, p, s;
-	gltexture_t	*glt;
+	static int		argh, argh2; //static instead of global
+	qboolean		noalpha;
+	int				i, p, s;
+	gltexture_t		*glt;
 	unsigned short	crc;
-	char		buffer[64];
+	char			buffer[64];
 
 	if (!identifier[0])
 	{
@@ -1470,6 +1501,9 @@ int GL_LoadTexture (char *identifier, int width, int height, byte *data, qboolea
 
 GL_LoadTexture_setup:
 
+	if (numgltextures == MAX_GLTEXTURES)
+		Sys_Error ("GL_LoadTexture: numgltextures == MAX_GLTEXTURES");
+
 	glt = &gltextures[numgltextures];
 	numgltextures++;
 
@@ -1493,7 +1527,7 @@ GL_LoadTexture_setup:
 
 /*
 ================
-Pad -- johnfitz -- return lowest power of two greater than or equal to x
+Pad -- johnfitz -- return smallest power of two greater than or equal to x
 ================
 */
 int Pad(int x)
@@ -1508,54 +1542,51 @@ int Pad(int x)
 GL_PadImage -- johnfitz -- return image padded up to power-of-two dimentions
 ================
 */
-byte *GL_PadImage(byte *in, int width, int height)
+void GL_PadImage(byte *in, int width, int height, byte *out)
 {
 	int i,j,w,h;
 	w = Pad(width);
 	h = Pad(height);
-
-	if (w * h > MAX_LOADIMAGE)
-		Sys_Error("GL_PadImage: padded image is larger than MAX_LOADIMAGE\n");
 
 	for (i = 0; i < h; i++) //each row
 	{
 		for (j = 0; j < w; j++) //each pixel in that row
 		{
 			if (i < height && j < width)
-				loadimage[i*w+j] = in[i*width+j];
+				out[i*w+j] = in[i*width+j];
 			else
-				loadimage[i*w+j] = 255;
+				out[i*w+j] = 255;
 		}
 	}
-	return loadimage;
 }
 
 /*
 ================
-GL_LoadSpriteTexture -- johnfitz -- pad image
+GL_LoadPaddedTexture -- johnfitz -- pad image before continuing
 ================
 */
-int GL_LoadSpriteTexture (char *name, int width, int height, byte *in, qboolean mipmap, qboolean alpha)
+int GL_LoadPaddedTexture (char *name, int width, int height, byte *in, qboolean mipmap, qboolean alpha)
 {
-	return GL_LoadTexture (name, Pad(width), Pad(height), GL_PadImage(in, width, height), mipmap, alpha);
+	int texnum, mark;
+	byte *padded;
+
+	mark = Hunk_LowMark();
+	padded = Hunk_Alloc(Pad(width) * Pad(height));
+
+	GL_PadImage(in, width, height, padded);
+	texnum = GL_LoadTexture (name, Pad(width), Pad(height), padded, mipmap, alpha);
+	
+	Hunk_FreeToLowMark(mark);
+
+	return texnum;
 }
 
 /*
 ================
-GL_LoadSkinTexture -- johnfitz -- pad image
-================
-*/
-int GL_LoadSkinTexture (char *name, int width, int height, byte *in, qboolean mipmap, qboolean alpha)
-{
-	return GL_LoadTexture (name, Pad(width), Pad(height), GL_PadImage(in, width, height), FALSE, alpha); //force no mipmapping
-}
-
-/*
-================
-GL_LoadPicTexture -- johnfitz -- pad image
+GL_LoadPicTexture -- johnfitz
 ================
 */
 int GL_LoadPicTexture (qpic_t *pic)
 {
-	return GL_LoadTexture ("", Pad(pic->width), Pad(pic->height), GL_PadImage(pic->data, pic->width, pic->height), false, true);
+	return GL_LoadPaddedTexture ("", pic->width, pic->height, pic->data, false, true);
 }

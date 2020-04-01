@@ -18,15 +18,18 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
-//gl_sky.c -- new fitzquake sky code
+//gl_sky.c
 
 #include "quakedef.h"
 
 #define	MAX_CLIP_VERTS 64
 
+float Fog_GetDensity(void);
+
+extern qboolean mtexenabled;
 extern	model_t	*loadmodel;
 extern	int gl_filter_max;
-int		c_sky_polys; //for r_speeds readout
+extern	int	rs_skypolys; //for r_speeds readout
 int		solidskytexture, alphaskytexture;
 float	skyflatcolor[3];
 float	speedscale;		//for sky scrolling
@@ -90,6 +93,9 @@ void Sky_LoadTexture (texture_t *mt)
 	unsigned	data[128*128];
 	unsigned	backcolor;
 	unsigned	*rgba;
+
+	if (isDedicated)
+		return;
 
 	src = (byte *)mt + mt->offsets[0];
 
@@ -205,6 +211,9 @@ void Sky_NewMap (void)
 	char key[128], value[4096];
 	char *data;
 
+	if (isDedicated)
+		return;
+
 	//initially no skybox
 	skybox_name[0] = 0;
 
@@ -236,10 +245,6 @@ void Sky_NewMap (void)
 		strcpy(value, com_token);
 
 		if (!strcmp("sky", key))
-			Sky_LoadSkyBox(value);
-		else if (!strcmp("skyname", key)) // non-standard, introduced by QuakeForge... sigh.
-			Sky_LoadSkyBox(value);
-		else if (!strcmp("qlsky", key)) // non-standard, introduced by QuakeLives (EEK)
 			Sky_LoadSkyBox(value);
 	}
 }
@@ -378,7 +383,7 @@ void Sky_ClipPoly (int nump, vec3_t vecs, int stage)
 	int		i, j;
 
 	if (nump > MAX_CLIP_VERTS-2)
-		Sys_Error ("ClipSkyPolygon: MAX_CLIP_VERTS");
+		Sys_Error ("Sky_ClipPoly: MAX_CLIP_VERTS");
 	if (stage == 6) // fully clipped
 	{	
 		Sky_ProjectPoly (nump, vecs);
@@ -484,7 +489,7 @@ void Sky_ProcessPoly (msurface_t *s)
 	glEnd ();
 
 	//update sky bounds
-	if (!r_fastsky.value)
+	if (!r_fastsky.value && !r_drawflat.value)
 	{
 		for (i=0 ; i<p->numverts ; i++)
 			VectorSubtract (p->verts[i], r_origin, verts[i]);
@@ -516,8 +521,8 @@ void Sky_ProcessBrushModel (entity_t *e)
 	if (clmodel == cl.worldmodel) //does this ever happen?
 		return;
 
-	if (r_speeds.value)
-		Con_Printf ("bmodel in view\n"); //TEST
+//	if (r_speeds.value)
+//		Con_Printf ("bmodel in view\n"); //TEST
 
 	if (e->angles[0] || e->angles[1] || e->angles[2])
 	{
@@ -750,7 +755,7 @@ void Sky_DrawSkyBox (void)
 		Sky_EmitSkyBoxVertex (skymaxs[0][i], skymins[1][i], i);
 		glEnd ();
 
-		c_sky_polys++;
+		rs_skypolys++;
 	}
 }
 
@@ -763,15 +768,22 @@ void Sky_DrawSkyBox (void)
 /*
 =============
 Sky_DrawFaceQuadLayer
+
+TODO: clean up this mess
 =============
 */
 void Sky_DrawFaceQuadLayer (glpoly_t *p)
 {
+	vec3_t	dir;
+	float	s, t, length, solidscroll, alphascroll;
 	float	*v;
 	int		i;
-	float	s, t;
-	vec3_t	dir;
-	float	length;
+
+	solidscroll = cl.time*8;
+	solidscroll -= (int)solidscroll & ~127;
+		
+	alphascroll = cl.time*16;
+	alphascroll -= (int)alphascroll & ~127;
 
 	glBegin (GL_QUADS);
 	for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
@@ -789,7 +801,14 @@ void Sky_DrawFaceQuadLayer (glpoly_t *p)
 		s = (speedscale + dir[0]) * (1.0/128);
 		t = (speedscale + dir[1]) * (1.0/128);
 
-		glTexCoord2f (s, t);
+		if(mtexenabled)
+		{
+			qglMTexCoord2fSGIS (TEXTURE0_SGIS, (solidscroll + dir[0]) * (1.0/128), (solidscroll + dir[1]) * (1.0/128));
+			qglMTexCoord2fSGIS (TEXTURE1_SGIS, (alphascroll + dir[0]) * (1.0/128), (alphascroll + dir[1]) * (1.0/128));
+		}
+		else
+			glTexCoord2f (s, t);
+
 		glVertex3fv (v);
 	}
 	glEnd ();
@@ -798,39 +817,50 @@ void Sky_DrawFaceQuadLayer (glpoly_t *p)
 /*
 ===============
 Sky_DrawFaceQuad
-
-TODO: use multitexture
 ===============
 */
 void Sky_DrawFaceQuad (glpoly_t *p)
 {
-	GL_DisableMultitexture();
+	if (mtexenabled)
+		GL_DisableMultitexture();
 
-	GL_Bind (solidskytexture);
-	speedscale = cl.time*8;
-	speedscale -= (int)speedscale & ~127;
-	Sky_DrawFaceQuadLayer (p);
+	if (gl_mtexable)
+	{
+		GL_SelectTexture(TEXTURE0_SGIS);
+		GL_Bind (solidskytexture);
 
-//	glColor4f(1,1,1,0.666);
-//	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glEnable (GL_BLEND); //GL_ALPHA_TEST for hard edge
+		GL_EnableMultitexture(); // selects TEXTURE1_SGIS 
+		GL_Bind (alphaskytexture);
+		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+		glEnable(GL_BLEND);
 
-	GL_Bind (alphaskytexture);
-	speedscale = cl.time*16;
-	speedscale -= (int)speedscale & ~127;
-	Sky_DrawFaceQuadLayer (p);
+		Sky_DrawFaceQuadLayer (p);
 
-//	glColor3f(1,1,1);
-//	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glDisable (GL_BLEND); //GL_ALPHA_TEST for hard edge
+		glDisable(GL_BLEND);
+		GL_DisableMultitexture();
+	}
+	else
+	{
+		GL_Bind (solidskytexture);
+		speedscale = cl.time*8;
+		speedscale -= (int)speedscale & ~127;
+		Sky_DrawFaceQuadLayer (p);
+
+		GL_Bind (alphaskytexture);
+		glEnable (GL_BLEND);
+		speedscale = cl.time*16;
+		speedscale -= (int)speedscale & ~127;
+		Sky_DrawFaceQuadLayer (p);
+		glDisable (GL_BLEND);
+	}
 }
 
 /*
 ==============
-Sky_SetFaceVert
+Sky_SetBoxVert
 ==============
 */
-void Sky_SetFaceVert (float s, float t, int axis, vec3_t v)
+void Sky_SetBoxVert (float s, float t, int axis, vec3_t v)
 {
 	vec3_t		b;
 	int			j, k;
@@ -864,10 +894,10 @@ void Sky_DrawFace (int axis)
 	float		di,qi,dj,qj;
 	vec3_t		vup, vright, temp, temp2;
 
-	Sky_SetFaceVert(-1.0, -1.0, axis, verts[0]);
-	Sky_SetFaceVert(-1.0,  1.0, axis, verts[1]);
-	Sky_SetFaceVert(1.0,   1.0, axis, verts[2]);
-	Sky_SetFaceVert(1.0,  -1.0, axis, verts[3]);
+	Sky_SetBoxVert(-1.0, -1.0, axis, verts[0]);
+	Sky_SetBoxVert(-1.0,  1.0, axis, verts[1]);
+	Sky_SetBoxVert(1.0,   1.0, axis, verts[2]);
+	Sky_SetBoxVert(1.0,  -1.0, axis, verts[3]);
 
 	start = Hunk_LowMark ();
 	p = Hunk_Alloc(sizeof(glpoly_t));
@@ -904,7 +934,7 @@ void Sky_DrawFace (int axis)
 				VectorAdd (p->verts[0],temp,p->verts[3]);
 
 				Sky_DrawFaceQuad (p);
-				c_sky_polys++;
+				rs_skypolys++;
 			}
 		}
 	}
@@ -923,7 +953,6 @@ void Sky_DrawSky (void)
 	extern int		ztrickframe;
 	extern cvar_t	gl_ztrick;
 	int				i;
-	extern int		fog_density;
 
 	//
 	// reset sky bounds
@@ -939,13 +968,13 @@ void Sky_DrawSky (void)
 	//
 	glDisable (GL_TEXTURE_2D);
 	glColor3f (skyflatcolor[0], skyflatcolor[1], skyflatcolor[2]);
-	Fog_ColorForSky ();
 	Fog_DisableGFog ();
+	Fog_SetColorForSky ();
 
 	Sky_ProcessWorld (cl.worldmodel->nodes);
-//		for (i=0 ; i<cl_numvisedicts ; i++)
-//			if (cl_visedicts[i]->model->type == mod_brush)
-//				Sky_ProcessBrushModel (cl_visedicts[i]);
+//	for (i=0 ; i<cl_numvisedicts ; i++)
+//		if (cl_visedicts[i]->model->type == mod_brush)
+//			Sky_ProcessBrushModel (cl_visedicts[i]);
 	
 	glEnable (GL_TEXTURE_2D);
 	glColor3f (1, 1, 1);
@@ -954,7 +983,7 @@ void Sky_DrawSky (void)
 	//
 	// render slow sky: cloud layers and/or skybox
 	//
-	if (!r_fastsky.value && fog_density <= 0 && !r_drawflat.value)
+	if (!r_fastsky.value && !r_drawflat.value && Fog_GetDensity() <= 0)
 	{
 		if (gl_ztrick.value && !(ztrickframe & 1))
 			glDepthFunc(GL_LEQUAL);

@@ -305,6 +305,33 @@ void Sbar_DrawString (int x, int y, char *str)
 }
 
 /*
+===============
+Sbar_DrawScrollString -- johnfitz
+
+scroll the string inside a glscissor region
+===============
+*/
+void Sbar_DrawScrollString (int x, int y, int width, char* str)
+{	
+	int len, ofs;
+
+	y += vid.height-SBAR_HEIGHT;
+	if (cl.gametype != GAME_DEATHMATCH) x += ((vid.width - 320)>>1);
+
+	len = strlen(str)*8 + 40;
+	ofs = ((int)(realtime*30))%len;
+
+	glEnable (GL_SCISSOR_TEST);
+	glScissor (x, vid.height - y - 8, 160, 8);
+
+	Draw_String (x - ofs, y, str);
+	Draw_String (x - ofs + len - 32, y, "///");
+	Draw_String (x - ofs + len, y, str);
+
+	glDisable (GL_SCISSOR_TEST);
+}
+
+/*
 =============
 Sbar_itoa
 =============
@@ -445,8 +472,6 @@ void Sbar_UpdateScoreboard (void)
 	}
 }
 
-
-
 /*
 ===============
 Sbar_SoloScoreboard
@@ -456,7 +481,7 @@ void Sbar_SoloScoreboard (void)
 {
 	char	str[80];
 	int		minutes, seconds, tens, units;
-	int		l;
+	int		len;
 
 	sprintf (str,"Monsters:%3i /%3i", cl.stats[STAT_MONSTERS], cl.stats[STAT_TOTALMONSTERS]);
 	Sbar_DrawString (8, 4, str);
@@ -472,9 +497,13 @@ void Sbar_SoloScoreboard (void)
 	sprintf (str,"Time :%3i:%i%i", minutes, tens, units);
 	Sbar_DrawString (184, 4, str);
 
-// draw level name
-	l = strlen (cl.levelname);
-	Sbar_DrawString (232 - l*4, 12, cl.levelname);
+	//johnfitz -- scroll long levelnames
+	len = strlen (cl.levelname);
+	if (len > 22)
+		Sbar_DrawScrollString (152, 12, 160, cl.levelname);
+	else 
+		Sbar_DrawString (232 - len*4, 12, cl.levelname);
+	//johnfitz
 }
 
 /*

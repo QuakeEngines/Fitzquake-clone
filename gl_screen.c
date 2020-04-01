@@ -144,7 +144,7 @@ Called for important messages that should stay in the center of the screen
 for a few moments
 ==============
 */
-void SCR_CenterPrint (char *str)
+void SCR_CenterPrint (char *str) //update centerprint data
 {
 	strncpy (scr_centerstring, str, sizeof(scr_centerstring)-1);
 	scr_centertime_off = scr_centertime.value;
@@ -160,8 +160,7 @@ void SCR_CenterPrint (char *str)
 	}
 }
 
-
-void SCR_DrawCenterString (void)
+void SCR_DrawCenterString (void) //actually do the drawing
 {
 	char	*start;
 	int		l;
@@ -179,7 +178,7 @@ void SCR_DrawCenterString (void)
 	start = scr_centerstring;
 
 	if (scr_center_lines <= 4)
-		y = /*vid.height*/240*0.35;	//johnfitz -- stretch overlays
+		y = /*vid.height*/200*0.35;	//johnfitz -- stretch overlays
 	else
 		y = 48;
 
@@ -472,13 +471,22 @@ void SCR_DrawClock (void)
 	{
 		int hours, minutes, seconds;
 		SYSTEMTIME systime;
+		char m[3] = "AM";
 
 		GetLocalTime(&systime);
 		hours = systime.wHour;
 		minutes = systime.wMinute;
 		seconds = systime.wSecond;
 
-		sprintf (str,"%i:%i%i:%i%i", hours%12, minutes/10, minutes%10, seconds/10, seconds%10);
+		if (hours > 12)
+		{
+			hours -= 12;
+			strcpy(m, "PM");
+		}
+		else if (hours == 0)
+			hours = 12;
+
+		sprintf (str,"%i:%i%i:%i%i %s", hours%12, minutes/10, minutes%10, seconds/10, seconds%10, m);
 	}
 	else
 		return;
@@ -840,25 +848,7 @@ int SCR_ModalMessage (char *text)
 
 //=============================================================================
 
-/*
-===============
-SCR_BringDownConsole
-
-Brings the console down and fades the palettes back to normal
-================
-*/
-void SCR_BringDownConsole (void)
-{
-	int		i;
-	
-	scr_centertime_off = 0;
-	
-	for (i=0 ; i<20 && scr_conlines != scr_con_current ; i++)
-		SCR_UpdateScreen ();
-
-	cl.cshifts[0].percent = 0;		// no area contents palette on next frame
-	VID_SetPalette (host_basepal);
-}
+//johnfitz -- deleted SCR_BringDownConsole
 
 void SCR_TileClear (void)
 {
@@ -995,7 +985,7 @@ void SCR_UpdateScreen (void)
 		M_Draw ();
 	}
 
-	V_UpdatePalette ();
+	V_UpdateBlend (); //johnfitz -- V_UpdatePalette cleaned up and renamed
 
 	GL_EndRendering ();
 }

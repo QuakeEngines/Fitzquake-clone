@@ -42,7 +42,7 @@ void Cvar_List_f (void)
 {
 	cvar_t	*cvar;
 	char 	*partial;
-	int		len, count, temp;
+	int		len, count;
 
 	if (Cmd_Argc() > 1)
 	{
@@ -55,9 +55,6 @@ void Cvar_List_f (void)
 		len = 0;
 	}
 
-	temp = scr_disabled_for_loading;
-	scr_disabled_for_loading = true;
-
 	count=0;
 	for (cvar=cvar_vars ; cvar ; cvar=cvar->next)
 	{
@@ -65,7 +62,7 @@ void Cvar_List_f (void)
 		{
 			continue;
 		}
-		Con_Printf ("%s%s %s \"%s\"\n",
+		Con_SafePrintf ("%s%s %s \"%s\"\n",
 			cvar->archive ? "*" : " ",
 			cvar->server ? "s" : " ",
 			cvar->name,
@@ -73,14 +70,12 @@ void Cvar_List_f (void)
 		count++;
 	}
 
-	Con_Printf ("%i cvars", count);
+	Con_SafePrintf ("%i cvars", count);
 	if (partial)
 	{
-		Con_Printf (" beginning with \"%s\"", partial);
+		Con_SafePrintf (" beginning with \"%s\"", partial);
 	}
-	Con_Printf ("\n");
-
-	scr_disabled_for_loading = temp;
+	Con_SafePrintf ("\n");
 }
 
 /*

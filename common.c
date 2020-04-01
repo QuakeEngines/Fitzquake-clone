@@ -1123,7 +1123,6 @@ Test_f -- johnfitz
 */
 void Test_f (void)
 {
-
 }
 
 /*

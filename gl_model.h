@@ -313,6 +313,7 @@ typedef struct {
 	int					posedata;	// numposes*poseverts trivert_t
 	int					commands;	// gl command list with embedded s/t
 	int					gl_texturenum[MAX_SKINS][4];
+	int					fullbrightmasks[MAX_SKINS][4]; //johnfitz
 	int					texels[MAX_SKINS];	// only for player skins
 	maliasframedesc_t	frames[1];	// variable sized
 } aliashdr_t;
@@ -331,7 +332,7 @@ extern	trivertx_t	*poseverts[MAXALIASFRAMES];
 // Whole model
 //
 
-typedef enum {mod_brush, mod_sprite, mod_alias} modtype_t;
+typedef enum {mod_brush, mod_sprite, mod_alias, mod_fog} modtype_t; //johnfitz -- added fog type
 
 #define	EF_ROCKET	1			// leave a trail
 #define	EF_GRENADE	2			// leave a trail

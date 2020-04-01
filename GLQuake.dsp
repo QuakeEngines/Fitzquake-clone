@@ -232,22 +232,6 @@ SOURCE=.\r_part.c
 SOURCE=.\view.c
 # End Source File
 # End Group
-# Begin Group "Progs"
-
-# PROP Default_Filter ""
-# Begin Source File
-
-SOURCE=.\pr_cmds.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\pr_edict.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\pr_exec.c
-# End Source File
-# End Group
 # Begin Group "Network"
 
 # PROP Default_Filter ""
@@ -280,18 +264,6 @@ SOURCE=.\net_wins.c
 SOURCE=.\net_wipx.c
 # End Source File
 # End Group
-# Begin Group "Host"
-
-# PROP Default_Filter ""
-# Begin Source File
-
-SOURCE=.\host.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\host_cmd.c
-# End Source File
-# End Group
 # Begin Group "Client"
 
 # PROP Default_Filter ""
@@ -319,6 +291,26 @@ SOURCE=.\cl_tent.c
 # Begin Group "Server"
 
 # PROP Default_Filter ""
+# Begin Source File
+
+SOURCE=.\host.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\host_cmd.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\pr_cmds.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\pr_edict.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\pr_exec.c
+# End Source File
 # Begin Source File
 
 SOURCE=.\sv_main.c
@@ -710,7 +702,7 @@ SOURCE=.\zone.c
 # PROP Default_Filter "ico;cur;bmp;dlg;rc2;rct;bin;cnt;rtf;gif;jpg;jpeg;jpe"
 # Begin Source File
 
-SOURCE=.\quake.ico
+SOURCE=.\fitzquake.ico
 # End Source File
 # End Group
 # Begin Source File

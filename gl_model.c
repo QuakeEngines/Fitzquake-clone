@@ -336,14 +336,14 @@ byte	*mod_base;
 TextureContainsFullbrights -- johnfitz
 =================
 */
-int TextureContainsFullbrights (byte *pixels, int num_pix)
+int TextureContainsFullbrights (byte *pixels, int count)
 {
-    int i;
-    for (i = 0; i < num_pix; i++)
-        if (pixels[i] > 223)
-            return 1;
+	int i;
 
-    return 0;
+	for (i = 0; i < count; i++)
+		if (pixels[i] > 223)
+			return 1;
+	return 0;
 }
 
 /*
@@ -351,13 +351,13 @@ int TextureContainsFullbrights (byte *pixels, int num_pix)
 ConvertToFullbrightMask -- johnfitz
 =================
 */
-void ConvertToFullbrightMask (byte *pixels, int num_pixels)
+void ConvertToFullbrightMask (byte *pixels, int count)
 {
-    int i;
+	int i;
 
-    for (i = 0; i < num_pixels; i++)
-        if (pixels[i] < 224)
-            pixels[i] = 255;
+	for (i = 0; i < count; i++)
+		if (pixels[i] < 224)
+			pixels[i] = 255;
 }
 
 /*
@@ -1229,7 +1229,7 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 	int			i, j;
 	dheader_t	*header;
 	dmodel_t 	*bm;
-	
+
 	loadmodel->type = mod_brush;
 	
 	header = (dheader_t *)buffer;
@@ -1500,19 +1500,20 @@ Mod_LoadAllSkins
 */
 void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 {
-	int						i, j, k, s, groupskins;
+	int						i, j, k, size, groupskins;
 	char					name[32];
 	byte					*copy, *skin, *texels;
 	daliasskingroup_t		*pinskingroup;
 	daliasskininterval_t	*pinskinintervals;
 	int						padx, pady, ii, jj; //johnfitz -- padded player skin
+	char					fbr_mask_name[64]; //johnfitz -- added for fullbright support
 
 	skin = (byte *)(pskintype + 1);
 
 	if (numskins < 1 || numskins > MAX_SKINS)
 		Sys_Error ("Mod_LoadAliasModel: Invalid # of skins: %d\n", numskins);
 
-	s = pheader->skinwidth * pheader->skinheight;
+	size = pheader->skinwidth * pheader->skinheight;
 
 	for (i=0 ; i<numskins ; i++)
 	{
@@ -1523,7 +1524,7 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 			//johnfitz -- changes for padded skin
 			padx = Pad(pheader->skinwidth);
 			pady = Pad(pheader->skinheight);
-			texels = Hunk_AllocName(padx * pady, loadname); 
+			texels = Hunk_AllocName(padx * pady, loadname);
 			pheader->texels[i] = texels - (byte *)pheader;
 			for (ii = 0; ii < pady; ii++) //each row
 			{
@@ -1542,9 +1543,32 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 			pheader->gl_texturenum[i][1] =
 			pheader->gl_texturenum[i][2] =
 			pheader->gl_texturenum[i][3] =
-				GL_LoadSkinTexture (name, pheader->skinwidth, 
-				pheader->skinheight, (byte *)(pskintype + 1), true, false); //johnfitz -- GL_LoadSkinTexture instead of GL_LoadTexture
-			pskintype = (daliasskintype_t *)((byte *)(pskintype+1) + s);
+				GL_LoadPaddedTexture (name, pheader->skinwidth, 
+				pheader->skinheight, (byte *)(pskintype+1), false, false); //johnfitz -- use GL_LoadPaddedTexture
+			
+			//johnfitz -- check for fullbright pixels in the skin
+			if (TextureContainsFullbrights ((byte *)(pskintype+1), size))
+			{
+				// convert any non fullbright pixel to fully transparent
+				ConvertToFullbrightMask ((byte *)(pskintype+1), size);
+
+				// get a new name for the fullbright mask to avoid cache mismatches
+				sprintf (fbr_mask_name, "fullbright_mask_%s", loadmodel->name);
+
+				// load the fullbright pixels version of the texture
+				pheader->fullbrightmasks[i][0] =
+				pheader->fullbrightmasks[i][1] =
+				pheader->fullbrightmasks[i][2] =
+				pheader->fullbrightmasks[i][3] =
+					GL_LoadPaddedTexture (fbr_mask_name, pheader->skinwidth, 
+					pheader->skinheight, (byte *)(pskintype+1), false, true); //alpha is true
+			}
+			else 
+				pheader->fullbrightmasks[i][0] = pheader->fullbrightmasks[i][1] =
+				pheader->fullbrightmasks[i][2] = pheader->fullbrightmasks[i][3] = -1;
+			//johnfitz
+			
+			pskintype = (daliasskintype_t *)((byte *)(pskintype+1) + size);
 		}
 		else
 		{
@@ -1558,17 +1582,36 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 
 			for (j=0 ; j<groupskins ; j++)
 			{
-					Mod_FloodFillSkin( skin, pheader->skinwidth, pheader->skinheight );
-					if (j == 0) {
-						texels = Hunk_AllocName(s, loadname);
-						pheader->texels[i] = texels - (byte *)pheader;
-						memcpy (texels, (byte *)(pskintype), s);
-					}
-					sprintf (name, "%s_%i_%i", loadmodel->name, i,j);
-					pheader->gl_texturenum[i][j&3] = 
-						GL_LoadSkinTexture (name, pheader->skinwidth, 
-						pheader->skinheight, (byte *)(pskintype), true, false); //johnfitz -- GL_LoadSkinTexture instead of GL_LoadTexture
-					pskintype = (daliasskintype_t *)((byte *)(pskintype) + s);
+				Mod_FloodFillSkin( skin, pheader->skinwidth, pheader->skinheight );
+				if (j == 0) {
+					texels = Hunk_AllocName(size, loadname);
+					pheader->texels[i] = texels - (byte *)pheader;
+					memcpy (texels, (byte *)(pskintype), size);
+				}
+				sprintf (name, "%s_%i_%i", loadmodel->name, i,j);
+				pheader->gl_texturenum[i][j&3] = 
+					GL_LoadPaddedTexture (name, pheader->skinwidth, 
+					pheader->skinheight, (byte *)(pskintype), false, false); //johnfitz -- GL_LoadPaddedTexture
+
+				//johnfitz -- check for fullbright pixels in the skin
+				if (TextureContainsFullbrights ((byte *)(pskintype), size))
+				{
+					// convert any non fullbright pixel to fully transparent
+					ConvertToFullbrightMask ((byte *)(pskintype), size);
+
+					// get a new name for the fullbright mask to avoid cache mismatches
+					sprintf (fbr_mask_name, "fullbright_mask_%s", loadmodel->name);
+
+					// load the fullbright pixels version of the texture
+					pheader->gl_texturenum[i][j&3] =
+						GL_LoadPaddedTexture (fbr_mask_name, pheader->skinwidth, 
+						pheader->skinheight, (byte *)(pskintype), false, true);
+				}
+				else 
+					pheader->gl_texturenum[i][j&3] = -1;
+				//johnfitz
+
+				pskintype = (daliasskintype_t *)((byte *)(pskintype) + size);
 			}
 			k = j;
 			for (/* */; j < 4; j++)
@@ -1792,7 +1835,7 @@ void * Mod_LoadSpriteFrame (void * pin, mspriteframe_t **ppframe, int framenum)
 	pspriteframe->right = width + origin[0];
 
 	sprintf (name, "%s_%i", loadmodel->name, framenum);
-	pspriteframe->gl_texturenum = GL_LoadSpriteTexture (name, width, height, (byte *)(pinframe + 1), true, true);
+	pspriteframe->gl_texturenum = GL_LoadPaddedTexture (name, width, height, (byte *)(pinframe + 1), false, true); //johnfitz -- don't mipmap sprites
 
 	return (void *)((byte *)pinframe + sizeof (dspriteframe_t) + size);
 }

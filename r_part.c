@@ -33,9 +33,8 @@ int		ramp3[8] = {0x6d, 0x6b, 6, 5, 4, 3};
 particle_t	*active_particles, *free_particles;
 
 particle_t	*particles;
-int			r_numparticles;
 
-int c_particle_polys; //johnfitz
+int			r_numparticles;
 
 vec3_t			r_pright, r_pup, r_ppn;
 
@@ -662,13 +661,6 @@ void R_DrawParticles (void)
 	byte			color[4]; //johnfitz -- particle transparency
 	float			alpha; //johnfitz -- particle transparency
 
-	//johnfitz -- check if particles disabled
-	if (r_particles.value == 0)
-		return;
-	//johnfitz
-
-	c_particle_polys = 0; //johnfitz
-
     GL_Bind(particletexture);
 	glEnable (GL_BLEND);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -721,34 +713,33 @@ void R_DrawParticles (void)
 			break;
 		}
 
-		// hack a scale up to keep particles from disapearing
-		scale = (p->org[0] - r_origin[0])*vpn[0] + (p->org[1] - r_origin[1])*vpn[1]
-			+ (p->org[2] - r_origin[2])*vpn[2];
-		if (scale < 20)
-			scale = 1;
-		else
-			scale = 1 + scale * 0.004;
+		//johnfitz -- render particles if not disabled
+		if (r_particles.value)
+		{
+			// hack a scale up to keep particles from disapearing
+			scale = (p->org[0] - r_origin[0])*vpn[0] + (p->org[1] - r_origin[1])*vpn[1]
+				+ (p->org[2] - r_origin[2])*vpn[2];
+			if (scale < 20)
+				scale = 1;
+			else
+				scale = 1 + scale * 0.004;
 
-		//johnfitz -- particle transparency and fade out
-		//fade out code commented for now
-		*(int *)color = d_8to24table[(int)p->color];
-		//alpha = p->die + 0.5 - cl.time;
-		//if (alpha < 0)
-		//	alpha = 0;
-		//if (alpha > 1)
-		//	alpha = 1;
-		color[3] = 255;//(int)(alpha * 255);
-		glColor4ubv(color);
-		//johnfitz
+			//johnfitz -- particle transparency and fade out
+			*(int *)color = d_8to24table[(int)p->color];
+			//alpha = CLAMP(0, p->die + 0.5 - cl.time, 1);
+			color[3] = 255; //(int)(alpha * 255);
+			glColor4ubv(color);
+			//johnfitz
 
-		glTexCoord2f (0,0);
-		glVertex3fv (p->org);
-		glTexCoord2f (1,0);
-		glVertex3f (p->org[0] + up[0]*scale, p->org[1] + up[1]*scale, p->org[2] + up[2]*scale);
-		glTexCoord2f (0,1);
-		glVertex3f (p->org[0] + right[0]*scale, p->org[1] + right[1]*scale, p->org[2] + right[2]*scale);
+			glTexCoord2f (0,0);
+			glVertex3fv (p->org);
+			glTexCoord2f (1,0);
+			glVertex3f (p->org[0] + up[0]*scale, p->org[1] + up[1]*scale, p->org[2] + up[2]*scale);
+			glTexCoord2f (0,1);
+			glVertex3f (p->org[0] + right[0]*scale, p->org[1] + right[1]*scale, p->org[2] + right[2]*scale);
 
-		c_particle_polys++; //johnfitz
+			rs_particles++; //johnfitz
+		}
 
 		p->org[0] += p->vel[0]*frametime;
 		p->org[1] += p->vel[1]*frametime;

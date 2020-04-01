@@ -211,6 +211,7 @@ void R_StoreEfrags (efrag_t **ppefrag)
 		{
 		case mod_alias:
 		case mod_brush:
+		case mod_fog: //johnfitz
 		case mod_sprite:
 			pent = pefrag->entity;
 

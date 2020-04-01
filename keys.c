@@ -272,7 +272,7 @@ void Key_TabComplete (void)
 	char	partial[MAXCMDLINE];
 	char	*c, *match;
 	tab_t	*t;
-	int		mark, i, temp;
+	int		mark, i;
 
 // if editline is empty, return
 	if (key_lines[edit_line][1] == 0)
@@ -304,14 +304,11 @@ void Key_TabComplete (void)
 
 		//print list
 		t = tablist->prev; //back through list becuase it's in reverse order
-		temp = scr_disabled_for_loading;
-		scr_disabled_for_loading = true;
 		do 
 		{
-			Con_Printf("   %s (%s)\n", t->name, t->type);
+			Con_SafePrintf("   %s (%s)\n", t->name, t->type);
 			t = t->prev;
 		} while (t != tablist->prev);
-		scr_disabled_for_loading = temp;
 
 		//get first match
 		match = tablist->prev->name;
@@ -368,6 +365,7 @@ void Key_Console (int key)
 	switch (key)
 	{
 	case K_ENTER:
+	case KP_ENTER:
 		key_tabpartial[0] = 0;
 		Cbuf_AddText (key_lines[edit_line]+1);	// skip the prompt
 		Cbuf_AddText ("\n");
@@ -424,7 +422,7 @@ void Key_Console (int key)
 					break;
 			}
 
-			con_backscroll = Clamp(0, con_current-i%con_totallines-2, con_totallines-(vid.height>>3)-1);
+			con_backscroll = CLAMP(0, con_current-i%con_totallines-2, con_totallines-(vid.height>>3)-1);
 		}
 		else
 			key_linepos = 1;
@@ -773,10 +771,10 @@ void Key_Bindlist_f (void)
 		if (keybindings[i])
 			if (*keybindings[i])
 			{
-				Con_Printf ("   %s \"%s\"\n", Key_KeynumToString(i), keybindings[i]);
+				Con_SafePrintf ("   %s \"%s\"\n", Key_KeynumToString(i), keybindings[i]);
 				count++;
 			}
-	Con_Printf ("%i bindings\n", count);
+	Con_SafePrintf ("%i bindings\n", count);
 }
 
 /*
@@ -866,6 +864,7 @@ void Key_Init (void)
 	for (i=32 ; i<128 ; i++)
 		consolekeys[i] = true;
 	consolekeys[K_ENTER] = true;
+	consolekeys[KP_ENTER] = true; //johnfitz
 	consolekeys[K_TAB] = true;
 	consolekeys[K_LEFTARROW] = true;
 	consolekeys[K_RIGHTARROW] = true;

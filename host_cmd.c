@@ -183,7 +183,8 @@ void Host_Game_f (void)
 			}
 		}
 
-		Draw_NewGame ();
+		if (!isDedicated)
+			Draw_NewGame ();
 		ExtraMaps_NewGame ();
 		Cache_Flush ();
 		//Cbuf_InsertText ("exec quake.rc\n");
@@ -245,6 +246,7 @@ void ExtraMaps_Add (char *name)
 
 void ExtraMaps_Init (void) //TODO: move win32 specific stuff to sys_win.c
 {
+#ifdef _WIN32
 	WIN32_FIND_DATA	FindFileData; 
 	HANDLE			Find;
 	char			filestring[MAX_OSPATH];
@@ -283,6 +285,7 @@ void ExtraMaps_Init (void) //TODO: move win32 specific stuff to sys_win.c
 						}
 		}
 	}
+#endif
 }
 
 void ExtraMaps_Clear (void)
@@ -310,21 +313,16 @@ Host_Maps_f
 */
 void Host_Maps_f (void)
 {
-	int i, temp;
+	int i;
 	extralevel_t	*level;
 
-	temp = scr_disabled_for_loading;
-	scr_disabled_for_loading = true;
-
 	for (level=extralevels, i=0; level; level=level->next, i++)
-		Con_Printf ("   %s\n", level->name);
+		Con_SafePrintf ("   %s\n", level->name);
 
 	if (i)
-		Con_Printf ("%i map(s)\n", i);
+		Con_SafePrintf ("%i map(s)\n", i);
 	else
-		Con_Printf ("no maps found\n");
-
-	scr_disabled_for_loading = temp;
+		Con_SafePrintf ("no maps found\n");
 }
 
 //==============================================================================
@@ -378,6 +376,7 @@ void Modlist_Add (char *name)
 
 void Modlist_Init (void) //TODO: move win32 specific stuff to sys_win.c
 {
+#ifdef _WIN32
 	WIN32_FIND_DATA	FindFileData, FindChildData; 
 	HANDLE			Find, FindProgs, FindPak;
 	char			filestring[MAX_OSPATH], childstring[MAX_OSPATH];
@@ -413,6 +412,7 @@ void Modlist_Init (void) //TODO: move win32 specific stuff to sys_win.c
 	//make sure these get closed too
 	FindClose (FindProgs);
 	FindClose (FindPak);
+#endif
 }
 
 /*
@@ -424,21 +424,16 @@ list all potential mod directories (contain either a pak file or a progs.dat)
 */
 void Host_Mods_f (void)
 {
-	int i, temp;
+	int i;
 	mod_t	*mod;
 
-	temp = scr_disabled_for_loading;
-	scr_disabled_for_loading = true;
-
 	for (mod = modlist, i=0; mod; mod = mod->next, i++)
-		Con_Printf ("   %s\n", mod->name);
+		Con_SafePrintf ("   %s\n", mod->name);
 
 	if (i)
-		Con_Printf ("%i mod(s)\n", i);
+		Con_SafePrintf ("%i mod(s)\n", i);
 	else
-		Con_Printf ("no mods found\n");
-
-	scr_disabled_for_loading = temp;
+		Con_SafePrintf ("no mods found\n");
 }
 
 //==============================================================================
@@ -1236,7 +1231,8 @@ void Host_Name_f (void)
 	
 void Host_Version_f (void)
 {
-	Con_Printf ("Version %4.2f\n", VERSION);
+	Con_Printf ("Quake Version %4.2f\n", VERSION); //johnfitz
+	Con_Printf ("FitzQuake Version %4.2f\n", FITZQUAKE_VERSION); //johnfitz
 	Con_Printf ("Exe: "__TIME__" "__DATE__"\n");
 }
 
@@ -1901,7 +1897,7 @@ void Host_Give_f (void)
         break;
 	//johnfitz -- give armour
     case 'a': 
-		if (v > 0 && v <= 100)
+		if (v >= 0 && v <= 100)
 		{
 			sv_player->v.armortype = 0.3;
 	        sv_player->v.armorvalue = v;

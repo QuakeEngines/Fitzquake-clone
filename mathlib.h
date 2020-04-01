@@ -41,7 +41,7 @@ extern	int nanmask;
 
 #define	IS_NAN(x) (((*(int *)&x)&nanmask)==nanmask)
 
-#define Clamp(min, x, max) ((x) < (min) ? (min) : (x) > (max) ? (max) : (x)) //johnfitz
+#define CLAMP(min, x, max) ((x) < (min) ? (min) : (x) > (max) ? (max) : (x)) //johnfitz
 
 #define DotProduct(x,y) (x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
 #define VectorSubtract(a,b,c) {c[0]=a[0]-b[0];c[1]=a[1]-b[1];c[2]=a[2]-b[2];}
