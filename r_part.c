@@ -30,13 +30,82 @@ int		ramp1[8] = {0x6f, 0x6d, 0x6b, 0x69, 0x67, 0x65, 0x63, 0x61};
 int		ramp2[8] = {0x6f, 0x6e, 0x6d, 0x6c, 0x6b, 0x6a, 0x68, 0x66};
 int		ramp3[8] = {0x6d, 0x6b, 6, 5, 4, 3};
 
-particle_t	*active_particles, *free_particles;
+particle_t	*active_particles, *free_particles, *particles;
 
-particle_t	*particles;
+vec3_t			r_pright, r_pup, r_ppn;
 
 int			r_numparticles;
 
-vec3_t			r_pright, r_pup, r_ppn;
+gltexture_t *particletexture, *particletexture1, *particletexture2; //johnfitz
+
+cvar_t	r_particles = {"r_particles","1", true}; //johnfitz
+cvar_t	r_quadparticles = {"r_quadparticles","1", true}; //johnfitz
+
+
+//johnfitz -- generate nice antialiased 32x32 circle for particles
+int R_ParticleTextureLookup (int x, int y, int sharpness) 
+{
+	int r; //distance from point x,y to circle origin, squared
+	int a; //alpha value to return
+
+	x -= 16;
+	y -= 16;
+	r = x * x + y * y;
+	r = r > 255 ? 255 : r;
+	a = sharpness * (255 - r);
+	a = a > 255 ? 255 : a;
+	return a;
+}
+//johnfitz
+
+void R_InitParticleTextures (void) //johnfitz -- rewritten
+{
+	int		x,y;
+	byte	data[64][64][4];
+
+	// particle texture 1 -- circle
+	for (x=0 ; x<64 ; x++)
+		for (y=0 ; y<64 ; y++)
+		{
+			data[y][x][0] = 255;
+			data[y][x][1] = 255;
+			data[y][x][2] = 255;
+			data[y][x][3] = R_ParticleTextureLookup(x, y, 8);
+		}
+	particletexture1 = TexMgr_LoadImage32 ("particle1", 64, 64, (unsigned int *)data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_LINEAR);
+
+	// particle texture 2 -- square
+	for (x=0 ; x<2 ; x++)
+		for (y=0 ; y<2 ; y++)
+		{
+			data[y][x][0] = 255;
+			data[y][x][1] = 255;
+			data[y][x][2] = 255;
+			data[y][x][3] = x || y ? 0 : 255;
+		}
+	particletexture2 = TexMgr_LoadImage32 ("particle2", 2, 2, (unsigned int *)data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_NEAREST);
+
+	//set default
+	particletexture = particletexture1;
+}
+
+/*
+===============
+R_SetParticleTexture_f
+===============
+*/
+void R_SetParticleTexture_f (void)
+{
+	switch ((int)(r_particles.value))
+	{
+	case 1:
+		particletexture = particletexture1;
+		break;
+	case 2:
+		particletexture = particletexture2;
+		break;
+	}
+}
 
 /*
 ===============
@@ -62,57 +131,18 @@ void R_InitParticles (void)
 
 	particles = (particle_t *)
 			Hunk_AllocName (r_numparticles * sizeof(particle_t), "particles");
-}
-
-#ifdef QUAKE2
-void R_DarkFieldParticles (entity_t *ent)
-{
-	int			i, j, k;
-	particle_t	*p;
-	float		vel;
-	vec3_t		dir;
-	vec3_t		org;
-
-	org[0] = ent->origin[0];
-	org[1] = ent->origin[1];
-	org[2] = ent->origin[2];
-	for (i=-16 ; i<16 ; i+=8)
-		for (j=-16 ; j<16 ; j+=8)
-			for (k=0 ; k<32 ; k+=8)
-			{
-				if (!free_particles)
-					return;
-				p = free_particles;
-				free_particles = p->next;
-				p->next = active_particles;
-				active_particles = p;
-		
-				p->die = cl.time + 0.2 + (rand()&7) * 0.02;
-				p->color = 150 + rand()%6;
-				p->type = pt_slowgrav;
-				
-				dir[0] = j*8;
-				dir[1] = i*8;
-				dir[2] = k*8;
 	
-				p->org[0] = org[0] + i + (rand()&3);
-				p->org[1] = org[1] + j + (rand()&3);
-				p->org[2] = org[2] + k + (rand()&3);
-	
-				VectorNormalize (dir);						
-				vel = 50 + (rand()&63);
-				VectorScale (dir, vel, p->vel);
-			}
-}
-#endif
+	Cvar_RegisterVariable (&r_particles, R_SetParticleTexture_f); //johnfitz
+	Cvar_RegisterVariable (&r_quadparticles, NULL); //johnfitz
 
+	R_InitParticleTextures (); //johnfitz
+}
 
 /*
 ===============
 R_EntityParticles
 ===============
 */
-
 #define NUMVERTEXNORMALS	162
 extern	float	r_avertexnormals[NUMVERTEXNORMALS][3];
 vec3_t	avelocities[NUMVERTEXNORMALS];
@@ -134,12 +164,11 @@ void R_EntityParticles (entity_t *ent)
 	dist = 64;
 	count = 50;
 
-if (!avelocities[0][0])
-{
-for (i=0 ; i<NUMVERTEXNORMALS*3 ; i++)
-avelocities[0][i] = (rand()&255) * 0.01;
-}
-
+	if (!avelocities[0][0])
+	{
+	for (i=0 ; i<NUMVERTEXNORMALS*3 ; i++)
+	avelocities[0][i] = (rand()&255) * 0.01;
+	}
 
 	for (i=0 ; i<NUMVERTEXNORMALS ; i++)
 	{
@@ -174,7 +203,6 @@ avelocities[0][i] = (rand()&255) * 0.01;
 	}
 }
 
-
 /*
 ===============
 R_ClearParticles
@@ -192,7 +220,11 @@ void R_ClearParticles (void)
 	particles[r_numparticles-1].next = NULL;
 }
 
-
+/*
+===============
+R_ReadPointFile_f
+===============
+*/
 void R_ReadPointFile_f (void)
 {
 	FILE	*f;
@@ -271,7 +303,6 @@ else
 /*
 ===============
 R_ParticleExplosion
-
 ===============
 */
 void R_ParticleExplosion (vec3_t org)
@@ -315,7 +346,6 @@ void R_ParticleExplosion (vec3_t org)
 /*
 ===============
 R_ParticleExplosion2
-
 ===============
 */
 void R_ParticleExplosion2 (vec3_t org, int colorStart, int colorLength)
@@ -349,7 +379,6 @@ void R_ParticleExplosion2 (vec3_t org, int colorStart, int colorLength)
 /*
 ===============
 R_BlobExplosion
-
 ===============
 */
 void R_BlobExplosion (vec3_t org)
@@ -394,7 +423,6 @@ void R_BlobExplosion (vec3_t org)
 /*
 ===============
 R_RunParticleEffect
-
 ===============
 */
 void R_RunParticleEffect (vec3_t org, vec3_t dir, int color, int count)
@@ -449,11 +477,9 @@ void R_RunParticleEffect (vec3_t org, vec3_t dir, int color, int count)
 	}
 }
 
-
 /*
 ===============
 R_LavaSplash
-
 ===============
 */
 void R_LavaSplash (vec3_t org)
@@ -495,7 +521,6 @@ void R_LavaSplash (vec3_t org)
 /*
 ===============
 R_TeleportSplash
-
 ===============
 */
 void R_TeleportSplash (vec3_t org)
@@ -534,6 +559,11 @@ void R_TeleportSplash (vec3_t org)
 			}
 }
 
+/*
+===============
+R_RocketTrail
+===============
+*/
 void R_RocketTrail (vec3_t start, vec3_t end, int type)
 {
 	vec3_t		vec;
@@ -638,41 +668,21 @@ void R_RocketTrail (vec3_t start, vec3_t end, int type)
 	}
 }
 
-
 /*
 ===============
-R_DrawParticles
+CL_RunParticles -- johnfitz -- all the particle behavior, separated from R_DrawParticles
 ===============
 */
-extern	cvar_t	sv_gravity;
-extern	cvar_t	r_particles; //johnfitz
-
-void R_DrawParticles (void)
+void CL_RunParticles (void)
 {
 	particle_t		*p, *kill;
-	float			grav;
 	int				i;
-	float			time2, time3;
-	float			time1;
-	float			dvel;
-	float			frametime;
-	vec3_t			up, right;
-	float			scale;
-	byte			color[4]; //johnfitz -- particle transparency
-	float			alpha; //johnfitz -- particle transparency
-
-    GL_Bind(particletexture);
-	glEnable (GL_BLEND);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glDepthMask(GL_FALSE); //johnfitz -- fix for particle z-buffer bug
-	glBegin (GL_TRIANGLES);
-
-	VectorScale (vup, 1.5, up);
-	VectorScale (vright, 1.5, right);
+	float			time1, time2, time3, dvel, frametime, scale, grav;
+	extern	cvar_t	sv_gravity;
 
 	frametime = cl.time - cl.oldtime;
 	time3 = frametime * 15;
-	time2 = frametime * 10; // 15;
+	time2 = frametime * 10;
 	time1 = frametime * 5;
 	grav = frametime * sv_gravity.value * 0.05;
 	dvel = 4*frametime;
@@ -680,11 +690,7 @@ void R_DrawParticles (void)
 	for ( ;; ) 
 	{
 		kill = active_particles;
-		//johnfitz -- a bit of a hack related to particle fade out.
-		//this gives them an extra half second of life
 		if (kill && kill->die < cl.time) 
-		//if (kill && kill->die + 0.5 < cl.time) 
-		//johnfitz
 		{
 			active_particles = kill->next;
 			kill->next = free_particles;
@@ -699,11 +705,7 @@ void R_DrawParticles (void)
 		for ( ;; )
 		{
 			kill = p->next;
-			//johnfitz -- a bit of a hack related to particle fade out.
-			//this gives them an extra half second of life
-			if (kill && kill->die < cl.time) 
-			//if (kill && kill->die + 0.5 < cl.time) 
-			//johnfitz
+			if (kill && kill->die < cl.time)
 			{
 				p->next = kill->next;
 				kill->next = free_particles;
@@ -711,34 +713,6 @@ void R_DrawParticles (void)
 				continue;
 			}
 			break;
-		}
-
-		//johnfitz -- render particles if not disabled
-		if (r_particles.value)
-		{
-			// hack a scale up to keep particles from disapearing
-			scale = (p->org[0] - r_origin[0])*vpn[0] + (p->org[1] - r_origin[1])*vpn[1]
-				+ (p->org[2] - r_origin[2])*vpn[2];
-			if (scale < 20)
-				scale = 1;
-			else
-				scale = 1 + scale * 0.004;
-
-			//johnfitz -- particle transparency and fade out
-			*(int *)color = d_8to24table[(int)p->color];
-			//alpha = CLAMP(0, p->die + 0.5 - cl.time, 1);
-			color[3] = 255; //(int)(alpha * 255);
-			glColor4ubv(color);
-			//johnfitz
-
-			glTexCoord2f (0,0);
-			glVertex3fv (p->org);
-			glTexCoord2f (1,0);
-			glVertex3f (p->org[0] + up[0]*scale, p->org[1] + up[1]*scale, p->org[2] + up[2]*scale);
-			glTexCoord2f (0,1);
-			glVertex3f (p->org[0] + right[0]*scale, p->org[1] + right[1]*scale, p->org[2] + right[2]*scale);
-
-			rs_particles++; //johnfitz
 		}
 
 		p->org[0] += p->vel[0]*frametime;
@@ -793,18 +767,118 @@ void R_DrawParticles (void)
 			break;
 
 		case pt_grav:
-#ifdef QUAKE2
-			p->vel[2] -= grav * 20;
-			break;
-#endif
 		case pt_slowgrav:
 			p->vel[2] -= grav;
 			break;
 		}
 	}
+}
 
-	glEnd ();
-	glDepthMask(GL_TRUE); //johnfitz -- fix for particle z-buffer bug
+/*
+===============
+R_DrawParticles -- johnfitz -- moved all non-drawing code to CL_RunParticles
+===============
+*/
+void R_DrawParticles (void)
+{
+	particle_t		*p;
+	float			scale;
+	vec3_t			up, right, p_up, p_right, p_upright; //johnfitz -- p_ vectors
+	byte			color[4]; //johnfitz -- particle transparency
+	float			alpha; //johnfitz -- particle transparency
+	extern	cvar_t	r_particles; //johnfitz
+
+	if (!r_particles.value)
+		return;
+
+	VectorScale (vup, 1.5, up);
+	VectorScale (vright, 1.5, right);
+
+    GL_Bind(particletexture);
+	glEnable (GL_BLEND);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glDepthMask (GL_FALSE); //johnfitz -- fix for particle z-buffer bug
+
+	if (r_quadparticles.value) //johnitz -- quads save fillrate
+	{
+		glBegin (GL_QUADS);
+		for (p=active_particles ; p ; p=p->next)
+		{
+			// hack a scale up to keep particles from disapearing
+			scale = (p->org[0] - r_origin[0]) * vpn[0]
+				  + (p->org[1] - r_origin[1]) * vpn[1]
+				  + (p->org[2] - r_origin[2]) * vpn[2];
+			if (scale < 20)
+				scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
+			else
+				scale = 1 + scale * 0.004;
+
+			scale /= 2.0; //quad is half the size of triangle
+
+			//johnfitz -- particle transparency and fade out
+			*(int *)color = d_8to24table[(int)p->color];
+			//alpha = CLAMP(0, p->die + 0.5 - cl.time, 1);
+			color[3] = 255; //(int)(alpha * 255);
+			glColor4ubv(color);
+			//johnfitz
+
+			glTexCoord2f (0,0);
+			glVertex3fv (p->org);
+
+			glTexCoord2f (0.5,0);
+			VectorMA (p->org, scale, up, p_up);
+			glVertex3fv (p_up);
+
+			glTexCoord2f (0.5,0.5);
+			VectorMA (p_up, scale, right, p_upright);
+			glVertex3fv (p_upright);
+
+			glTexCoord2f (0,0.5);
+			VectorMA (p->org, scale, right, p_right);
+			glVertex3fv (p_right);
+
+			rs_particles++; //johnfitz
+		}
+		glEnd ();
+	}
+	else //johnitz --  triangles save verts
+	{
+		glBegin (GL_TRIANGLES);
+		for (p=active_particles ; p ; p=p->next)
+		{
+			// hack a scale up to keep particles from disapearing
+			scale = (p->org[0] - r_origin[0]) * vpn[0]
+				  + (p->org[1] - r_origin[1]) * vpn[1]
+				  + (p->org[2] - r_origin[2]) * vpn[2];
+			if (scale < 20)
+				scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
+			else
+				scale = 1 + scale * 0.004;
+
+			//johnfitz -- particle transparency and fade out
+			*(int *)color = d_8to24table[(int)p->color];
+			//alpha = CLAMP(0, p->die + 0.5 - cl.time, 1);
+			color[3] = 255; //(int)(alpha * 255);
+			glColor4ubv(color);
+			//johnfitz
+
+			glTexCoord2f (0,0);
+			glVertex3fv (p->org);
+
+			glTexCoord2f (1,0);
+			VectorMA (p->org, scale, up, p_up);
+			glVertex3fv (p_up);
+
+			glTexCoord2f (0,1);
+			VectorMA (p->org, scale, right, p_right);
+			glVertex3fv (p_right);
+
+			rs_particles++; //johnfitz
+		}
+		glEnd ();
+	}
+
+	glDepthMask (GL_TRUE); //johnfitz -- fix for particle z-buffer bug
 	glDisable (GL_BLEND);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); 
 }

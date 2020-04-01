@@ -195,7 +195,6 @@ void EmitWaterPolys (msurface_t *fa)
 	int			i;
 	float		s, t, os, ot;
 
-
 	for (p=fa->polys ; p ; p=p->next)
 	{
 
@@ -221,5 +220,9 @@ void EmitWaterPolys (msurface_t *fa)
 			glVertex3fv (v);
 		}
 		glEnd ();
+
+		rs_brushpasses++; //johnfitz
 	}
+	
+	rs_brushpolys++; //johnfitz
 }

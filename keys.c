@@ -173,182 +173,6 @@ keyname_t keynames[] =
 ==============================================================================
 */
 
-//johnfitz -- tab completion stuff
-//unique defs
-char key_tabpartial[MAXCMDLINE];
-typedef struct tab_s
-{
-	char			*name;
-	char			*type;
-	struct tab_s	*next;
-	struct tab_s	*prev;
-} tab_t;
-tab_t	*tablist;
-
-//defs from elsewhere
-extern qboolean	keydown[256];
-typedef struct cmd_function_s
-{
-	struct cmd_function_s	*next;
-	char					*name;
-	xcommand_t				function;
-} cmd_function_t;
-extern	cmd_function_t	*cmd_functions;
-#define	MAX_ALIAS_NAME	32
-typedef struct cmdalias_s
-{
-	struct cmdalias_s	*next;
-	char	name[MAX_ALIAS_NAME];
-	char	*value;
-} cmdalias_t;
-extern	cmdalias_t	*cmd_alias;
-
-/*
-============
-AddToTabList -- johnfitz
-
-tablist is a doubly-linked loop
-============
-*/
-void AddToTabList (char *name, char *type)
-{
-	tab_t	*t;
-
-	t = Hunk_Alloc(sizeof(tab_t));
-	t->name = name;
-	t->type = type;
-
-	if (tablist) //list not empty
-	{
-		t->next = tablist;
-		t->prev = tablist->prev;
-		t->next->prev = t; 
-		t->prev->next = t;
-		tablist = t;
-	}
-	else //list empty
-	{
-		tablist = t;
-		t->next = t;
-		t->prev = t;
-	}
-}
-
-/*
-============
-BuildTabList -- johnfitz
-============
-*/
-void BuildTabList (char *partial)
-{
-	cmdalias_t		*alias;
-	cvar_t			*cvar;
-	cmd_function_t	*cmd;
-	int				len;
-
-	tablist = NULL;
-	len = strlen(partial);
-
-	for (cvar=cvar_vars ; cvar ; cvar=cvar->next)
-		if (!Q_strncmp (partial, cvar->name, len))
-			AddToTabList (cvar->name, "cvar");
-
-	for (cmd=cmd_functions ; cmd ; cmd=cmd->next)
-		if (!Q_strncmp (partial,cmd->name, len))
-			AddToTabList (cmd->name, "command");
-
-	for (alias=cmd_alias ; alias ; alias=alias->next)
-		if (!Q_strncmp (partial, alias->name, len))
-			AddToTabList (alias->name, "alias");
-}
-
-/*
-============
-Key_TabComplete -- johnfitz
-============
-*/
-void Key_TabComplete (void)
-{
-	char	partial[MAXCMDLINE];
-	char	*c, *match;
-	tab_t	*t;
-	int		mark, i;
-
-// if editline is empty, return
-	if (key_lines[edit_line][1] == 0)
-		return;
-
-// get partial string (space -> cursor)
-	//work back from cursor until you find a space, quote, semicolon, or prompt
-	c = key_lines[edit_line] + key_linepos - 1; //start one space left of cursor
-	while (*c!=' ' && *c!='\"' && *c!=';' && c!=key_lines[edit_line])
-		c--;
-	c++; //start 1 char after the seperator we just found
-	for (i = 0; c + i < key_lines[edit_line] + key_linepos; i++)
-		partial[i] = c[i];
-	partial[i] = 0;
-
-//if partial is empty, return
-	if (partial[0] == 0)
-		return;
-
-// find a match
-	mark = Hunk_LowMark();
-	if (!Q_strlen(key_tabpartial)) //first time through
-	{
-		Q_strcpy (key_tabpartial, partial);
-		BuildTabList (key_tabpartial);
-
-		if (!tablist)
-			return;
-
-		//print list
-		t = tablist->prev; //back through list becuase it's in reverse order
-		do 
-		{
-			Con_SafePrintf("   %s (%s)\n", t->name, t->type);
-			t = t->prev;
-		} while (t != tablist->prev);
-
-		//get first match
-		match = tablist->prev->name;
-	}
-	else
-	{
-		BuildTabList (key_tabpartial);
-
-		if (!tablist)
-			return;
-
-		//find current match -- can't save a pointer because the list will be rebuilt each time
-		t = tablist;
-		do 
-		{
-			if (!Q_strncmp(t->name, partial, strlen(t->name)))
-				break;
-			t = t->next;
-		} while (t != tablist);
-
-		//use next or prev to find next match (reverse since list is backwards)
-		match = keydown[K_SHIFT] ? t->next->name : t->prev->name;
-	}
-	Hunk_FreeToLowMark(mark); //free it here becuase match is a pointer to persistent data
-
-// insert new match into edit line
-	Q_strcpy (partial, match); //first copy match string
-	Q_strcat (partial, key_lines[edit_line] + key_linepos); //then add chars after cursor
-	Q_strcpy (c, partial); //now copy all of this into edit line
-	key_linepos = c - key_lines[edit_line] + Q_strlen(match); //set new cursor position
-
-// if cursor is at end of string, let's append a space to make life easier
-//	if (key_lines[edit_line][key_linepos] == 0)
-//	{
-//		key_lines[edit_line][key_linepos] = ' ';
-//		key_linepos++;
-//		key_lines[edit_line][key_linepos] = 0;
-//	}
-}
-
 /*
 ====================
 Key_Console -- johnfitz -- heavy revision
@@ -373,13 +197,14 @@ void Key_Console (int key)
 		edit_line = (edit_line + 1) & 31;
 		history_line = edit_line;
 		key_lines[edit_line][0] = ']';
+		key_lines[edit_line][1] = 0; //johnfitz -- otherwise old history items show up in the new edit line
 		key_linepos = 1;
 		if (cls.state == ca_disconnected)
 			SCR_UpdateScreen (); // force an update, because the command may take some time
 		return;
 
 	case K_TAB:
-		Key_TabComplete ();
+		Con_TabComplete ();
 		return;
 
 	case K_BACKSPACE:
@@ -422,7 +247,7 @@ void Key_Console (int key)
 					break;
 			}
 
-			con_backscroll = CLAMP(0, con_current-i%con_totallines-2, con_totallines-(vid.height>>3)-1);
+			con_backscroll = CLAMP(0, con_current-i%con_totallines-2, con_totallines-(glheight>>3)-1);
 		}
 		else
 			key_linepos = 1;

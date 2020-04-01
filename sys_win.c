@@ -95,7 +95,7 @@ FILE IO
 ===============================================================================
 */
 
-#define	MAX_HANDLES		10
+#define	MAX_HANDLES		32 //johnfitz -- was 10
 FILE	*sys_handles[MAX_HANDLES];
 
 int		findhandle (void)

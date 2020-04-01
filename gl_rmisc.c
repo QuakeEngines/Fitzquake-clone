@@ -23,21 +23,18 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 
 //johnfitz -- new cvars
+extern cvar_t r_stereo;
+extern cvar_t r_stereodepth;
 extern cvar_t r_clearcolor;
-extern cvar_t r_particles;
 extern cvar_t r_drawflat;
 extern cvar_t r_flatlightstyles;
 extern cvar_t gl_fullbrights;
 extern cvar_t gl_farclip;
 extern cvar_t gl_overbright_models;
-//extern cvar_t _gl_texturemode;
 cvar_t r_waterwarp = {"r_waterwarp", "1"};
 //johnfitz
 
-extern int gl_filter_min, gl_filter_max; //johnfitz
-extern int particletexture1, particletexture2, particletexture3; //johnfitz
-
-void Draw_TextureMode_f (void); //johnfitz
+extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
 /*
 ====================
@@ -63,161 +60,6 @@ void R_Novis_f (void)
 {
 	extern int vis_changed;
 	vis_changed = TRUE;
-}
-
-/*
-==================
-R_InitTextures
-==================
-*/
-void	R_InitTextures (void)
-{
-	int		x,y, m;
-	byte	*dest;
-
-// create a simple checkerboard texture for the default
-	r_notexture_mip = Hunk_AllocName (sizeof(texture_t) + 16*16+8*8+4*4+2*2, "notexture");
-	
-	r_notexture_mip->width = r_notexture_mip->height = 16;
-	r_notexture_mip->offsets[0] = sizeof(texture_t);
-	r_notexture_mip->offsets[1] = r_notexture_mip->offsets[0] + 16*16;
-	r_notexture_mip->offsets[2] = r_notexture_mip->offsets[1] + 8*8;
-	r_notexture_mip->offsets[3] = r_notexture_mip->offsets[2] + 4*4;
-	
-	for (m=0 ; m<4 ; m++)
-	{
-		dest = (byte *)r_notexture_mip + r_notexture_mip->offsets[m];
-		for (y=0 ; y< (16>>m) ; y++)
-			for (x=0 ; x< (16>>m) ; x++)
-			{
-				if (  (y< (8>>m) ) ^ (x< (8>>m) ) )
-					*dest++ = 0;
-				else
-					*dest++ = 0xff;
-			}
-	}	
-}
-/*
-================================================================================
-
-Particles
-
-================================================================================
-*/
-//johnfitz -- generate nice antialiased 32x32 circle for particles
-int R_ParticleTextureLookup (int x, int y, int sharpness) 
-{
-	int r; //distance from point x,y to circle origin, squared
-	int a; //alpha value to return
-
-	x -= 16;
-	y -= 16;
-	r = x * x + y * y;
-	r = r > 255 ? 255 : r;
-	a = sharpness * (255 - r);
-	a = a > 255 ? 255 : a;
-	return a;
-}
-//johnfitz
-
-void R_InitParticleTextures (void)
-{
-	int		x,y;
-	byte	data[64][64][4]; //johnfitz -- bigger texture
-
-	// particle texture 1 -- circle
-	particletexture1 = texture_extension_number++;
-    GL_Bind(particletexture1);
-
-	for (x=0 ; x<64 ; x++)
-		for (y=0 ; y<64 ; y++)
-		{
-			data[y][x][0] = 255;
-			data[y][x][1] = 255;
-			data[y][x][2] = 255;
-			data[y][x][3] = R_ParticleTextureLookup(x, y, 8);
-		}
-	glTexImage2D (GL_TEXTURE_2D, 0, gl_alpha_format, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	// particle texture 2 -- square
-	particletexture2 = texture_extension_number++;
-    GL_Bind(particletexture2);
-
-	for (x=0 ; x<2 ; x++)
-		for (y=0 ; y<2 ; y++)
-		{
-			data[y][x][0] = 255;
-			data[y][x][1] = 255;
-			data[y][x][2] = 255;
-			data[y][x][3] = x || y ? 0 : 255;
-		}
-	glTexImage2D (GL_TEXTURE_2D, 0, gl_alpha_format, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-	//set default
-	particletexture = particletexture1;
-}
-
-/*
-===============
-R_SetParticleTexture_f
-===============
-*/
-void R_SetParticleTexture_f (void)
-{
-	switch ((int)(r_particles.value))
-	{
-	case 1:
-		particletexture = particletexture1;
-		break;
-	case 2:
-		particletexture = particletexture2;
-		break;
-	}
-}
-
-//==============================================================================
-
-//johnfitz -- for the darkened background when you go to the menu
-byte fadescreen[8][8] =
-{
-	{0,1,1,1,0,1,1,1},
-	{1,1,0,1,1,1,0,1},
-	{0,1,1,1,0,1,1,1},
-	{1,1,0,1,1,1,0,1},
-	{0,1,1,1,0,1,1,1},
-	{1,1,0,1,1,1,0,1},
-	{0,1,1,1,0,1,1,1},
-	{1,1,0,1,1,1,0,1},
-};
-
-void R_InitScreenTexture (void) //johnfitz -- for the darkened background when you go to the menu
-{
-	int		x,y;
-	byte	data[8][8][4];
-
-	screentexture = texture_extension_number++;
-    GL_Bind(screentexture);
-
-	for (x=0 ; x<8 ; x++)
-	{
-		for (y=0 ; y<8 ; y++)
-		{
-			data[y][x][0] = 0;
-			data[y][x][1] = 0;
-			data[y][x][2] = 0;
-			data[y][x][3] = fadescreen[y][x]*255;
-		}
-	}
-	glTexImage2D (GL_TEXTURE_2D, 0, gl_alpha_format, 8, 8, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 }
 
 //==============================================================================
@@ -317,8 +159,6 @@ void R_Init (void)
 	Cvar_RegisterVariable (&gl_finish, NULL);
 	Cvar_RegisterVariable (&gl_clear, NULL);
 	Cvar_RegisterVariable (&gl_texsort, NULL);
- 	if (gl_mtexable)
-		Cvar_SetValue ("gl_texsort", 0.0);
 	Cvar_RegisterVariable (&gl_cull, NULL);
 	Cvar_RegisterVariable (&gl_smoothmodels, NULL);
 	Cvar_RegisterVariable (&gl_affinemodels, NULL);
@@ -327,24 +167,20 @@ void R_Init (void)
 	Cvar_RegisterVariable (&gl_playermip, NULL);
 	Cvar_RegisterVariable (&gl_nocolors, NULL);
 	Cvar_RegisterVariable (&gl_keeptjunctions, NULL);
-	Cvar_RegisterVariable (&gl_reporttjunctions, NULL);
-	Cvar_RegisterVariable (&gl_doubleeyes, NULL);
 
 	//johnfitz -- new cvars
-	Cvar_RegisterVariable (&r_particles, R_SetParticleTexture_f);
+	Cvar_RegisterVariable (&r_stereo, NULL);
+	Cvar_RegisterVariable (&r_stereodepth, NULL);
 	Cvar_RegisterVariable (&r_clearcolor, R_SetClearColor_f);
 	Cvar_RegisterVariable (&r_waterwarp, NULL);
 	Cvar_RegisterVariable (&r_drawflat, NULL);
 	Cvar_RegisterVariable (&r_flatlightstyles, NULL);
-//	Cvar_RegisterVariable (&_gl_texturemode, Draw_TextureMode_f);
 	Cvar_RegisterVariable (&gl_farclip, NULL);
 	Cvar_RegisterVariable (&gl_fullbrights, NULL);
 	Cvar_RegisterVariable (&gl_overbright_models, NULL);
 	//johnfitz
 
 	R_InitParticles ();
-	R_InitParticleTextures (); //johnfitz
-	R_InitScreenTexture (); //johnfitz
 	R_SetClearColor_f (); //johnfitz
 
 	Sky_Init (); //johnfitz
@@ -353,14 +189,11 @@ void R_Init (void)
 #ifdef GLTEST
 	Test_Init ();
 #endif
-
-	playertextures = texture_extension_number;
-	texture_extension_number += 16;
 }
 
 /*
 ===============
-R_TranslatePlayerSkin
+R_TranslatePlayerSkin -- johnfitz -- much revision
 
 Translates a skin texture by the per-player color lookup
 ===============
@@ -380,8 +213,6 @@ void R_TranslatePlayerSkin (int playernum)
 	byte		*inrow;
 	unsigned	frac, fracstep;
 	extern	byte		**player_8bit_texels_tbl;
-
-	GL_DisableMultitexture();
 
 	top = cl.scores[playernum].colors & 0xf0;
 	bottom = (cl.scores[playernum].colors &15)<<4;
@@ -422,71 +253,32 @@ void R_TranslatePlayerSkin (int playernum)
 	if (s & 3)
 		Sys_Error ("R_TranslateSkin: s&3");
 
+	// because this happens during gameplay, do it fast
+	// instead of sending it through gl_upload 8
+
 	inwidth = Pad(paliashdr->skinwidth); //johnfitz -- texels already padded in mod_loadallskins
 	inheight = Pad(paliashdr->skinheight); //johnfitz -- texels already padded in mod_loadallskins
 
-	// because this happens during gameplay, do it fast
-	// instead of sending it through gl_upload 8
-    GL_Bind(playertextures + playernum);
-
-	//johnfitz -- use GL_SafeTextureSize
-	scaled_width = GL_SafeTextureSize (512); 
-	scaled_height = GL_SafeTextureSize (256);
-	//johnfitz
-
-	if (VID_Is8bit()) { // 8bit texture upload
-		byte *out2;
-
-		out2 = (byte *)pixels;
-		memset(pixels, 0, sizeof(pixels));
-		fracstep = inwidth*0x10000/scaled_width;
-		for (i=0 ; i<scaled_height ; i++, out2 += scaled_width)
-		{
-			inrow = original + inwidth*(i*inheight/scaled_height);
-			frac = fracstep >> 1;
-			for (j=0 ; j<scaled_width ; j+=4)
-			{
-				out2[j] = translate[inrow[frac>>16]];
-				frac += fracstep;
-				out2[j+1] = translate[inrow[frac>>16]];
-				frac += fracstep;
-				out2[j+2] = translate[inrow[frac>>16]];
-				frac += fracstep;
-				out2[j+3] = translate[inrow[frac>>16]];
-				frac += fracstep;
-			}
-		}
-
-		GL_Upload8_EXT ((byte *)pixels, scaled_width, scaled_height, false, false);
-		return;
-	}
-
+	scaled_width = TexMgr_SafeTextureSize (inwidth); 
+	scaled_height = TexMgr_SafeTextureSize (inheight);
+	
 	for (i=0 ; i<256 ; i++)
 		translate32[i] = d_8to24table[translate[i]];
 
-	out = pixels;
-	fracstep = inwidth*0x10000/scaled_width;
-	for (i=0 ; i<scaled_height ; i++, out += scaled_width)
+	//no need to resample; image is already padded to a power of 2
 	{
-		inrow = original + inwidth*(i*inheight/scaled_height);
-		frac = fracstep >> 1;
-		for (j=0 ; j<scaled_width ; j+=4)
-		{
-			out[j] = translate32[inrow[frac>>16]];
-			frac += fracstep;
-			out[j+1] = translate32[inrow[frac>>16]];
-			frac += fracstep;
-			out[j+2] = translate32[inrow[frac>>16]];
-			frac += fracstep;
-			out[j+3] = translate32[inrow[frac>>16]];
-			frac += fracstep;
-		}
-	}
-	glTexImage2D (GL_TEXTURE_2D, 0, gl_solid_format, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		char	name[64];
 
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_max);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+		for (i=0; i<inwidth*inheight; i+=4)
+		{
+			pixels[i] = translate32[original[i]];
+			pixels[i+1] = translate32[original[i+1]];
+			pixels[i+2] = translate32[original[i+2]];
+			pixels[i+3] = translate32[original[i+3]];
+		}
+		sprintf(name, "player_%i", playernum);
+		playertextures[playernum] = TexMgr_LoadImage32 (name, scaled_width, scaled_height, pixels, 0); //johnfitz
+	}
 }
 
 
@@ -560,7 +352,7 @@ void R_TimeRefresh_f (void)
 	time = stop-start;
 	Con_Printf ("%f seconds (%f fps)\n", time, 128/time);
 
-	glDrawBuffer  (GL_BACK);
+	glDrawBuffer (GL_BACK);
 	GL_EndRendering ();
 }
 

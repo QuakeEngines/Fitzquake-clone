@@ -26,21 +26,21 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 float Fog_GetDensity(void);
 
-extern qboolean mtexenabled;
 extern	model_t	*loadmodel;
-extern	int gl_filter_max;
 extern	int	rs_skypolys; //for r_speeds readout
-int		solidskytexture, alphaskytexture;
+extern	int rs_skypasses; //for r_speeds readout
 float	skyflatcolor[3];
-float	speedscale;		//for sky scrolling
 float	skymins[2][6], skymaxs[2][6];
-int		skybox_texnum = -1; //if -1, no skybox has been loaded since quake started
-char	skybox_name[32] = ""; //name of current skybox, or "" if no skybox
+
+char		skybox_name[32] = ""; //name of current skybox, or "" if no skybox
+
+gltexture_t	*skybox_textures[6];
+gltexture_t	*solidskytexture, *alphaskytexture;
 
 extern cvar_t r_drawflat;
 extern cvar_t gl_farclip;
 cvar_t r_fastsky = {"r_fastsky", "0"};
-cvar_t r_sky_quality = {"r_sky_quality", "8"};
+cvar_t r_sky_quality = {"r_sky_quality", "12"};
 
 int		skytexorder[6] = {0,2,1,3,4,5}; //for skybox
 
@@ -88,50 +88,35 @@ A sky texture is 256*128, with the left side being a masked overlay
 */
 void Sky_LoadTexture (texture_t *mt)
 {
+	char		texturename[32];
 	int			i, j, p, r, g, b, count;
 	byte		*src;
-	unsigned	data[128*128];
-	unsigned	backcolor;
+	byte		data[128*128];
 	unsigned	*rgba;
-
-	if (isDedicated)
-		return;
 
 	src = (byte *)mt + mt->offsets[0];
 
-	//translate back texture 
+// extract back layer and upload
 	for (i=0 ; i<128 ; i++)
 		for (j=0 ; j<128 ; j++)
-			data[(i*128) + j] = d_8to24table[src[i*256 + j + 128]];
+			data[(i*128) + j] = src[i*256 + j + 128];
 
-	//upload back texture
-	if (!solidskytexture)
-		solidskytexture = texture_extension_number++;
-	GL_Bind (solidskytexture );
-	glTexImage2D (GL_TEXTURE_2D, 0, gl_solid_format, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_max);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+	sprintf(texturename, "%s_back", mt->name);
+	solidskytexture = TexMgr_LoadImage8 (texturename, 128, 128, data, 0);
 
-	//translate front texture
+// extract front layer and upload
 	for (i=0 ; i<128 ; i++)
 		for (j=0 ; j<128 ; j++)
 		{
-			p = src[i*256 + j];
-			if (p == 0)
-				p = 255;
-			data[(i*128) + j] = d_8to24table[p];
+			data[(i*128) + j] = src[i*256 + j];
+			if (data[(i*128) + j] == 0)
+				data[(i*128) + j] = 255;
 		}
-	AlphaEdgeFix(&data, 128, 128);
 
-	//upload front texture
-	if (!alphaskytexture)
-		alphaskytexture = texture_extension_number++;
-	GL_Bind(alphaskytexture);
-	glTexImage2D (GL_TEXTURE_2D, 0, gl_alpha_format, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_max);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+	sprintf(texturename, "%s_front", mt->name);
+	alphaskytexture = TexMgr_LoadImage8 (texturename, 128, 128, data, TEXPREF_ALPHA);
 
-	//calculate r_fastsky color based on average of all opaque foreground colors
+// calculate r_fastsky color based on average of all opaque foreground colors
 	r = g = b = count = 0;
 	for (i=0 ; i<128 ; i++)
 		for (j=0 ; j<128 ; j++)
@@ -167,16 +152,18 @@ void Sky_LoadSkyBox (char *name)
 	if (strcmp(skybox_name, name) == 0) //no change
 		return;
 
+	//purge old textures
+	for (i=0; i<6; i++)
+	{
+		if (skybox_textures[i] != notexture)
+			TexMgr_FreeTexture (skybox_textures[i]);
+		skybox_textures[i] = notexture;
+	}
+
 	if (name[0] == 0) //turn off skybox if sky is set to ""
 	{
 		skybox_name[0] = 0;
 		return;
-	}
-
-	if (skybox_texnum == -1)
-	{
-		skybox_texnum = texture_extension_number;
-		texture_extension_number+=6;
 	}
 
 	for (i=0 ; i<6 ; i++) //load textures
@@ -185,16 +172,12 @@ void Sky_LoadSkyBox (char *name)
 		sprintf (filename, "gfx/env/%s%s", name, suf[i]);
 		data = Image_LoadImage (filename, &width, &height);
 		if (data)
-		{		
-			GL_Bind (skybox_texnum + i);
-			glTexImage2D (GL_TEXTURE_2D, 0, gl_solid_format, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_max);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
-
-			Con_Printf ("Loaded %s - %i x %i\n", filename, width, height); //TEST
-		}
+			skybox_textures[i] = TexMgr_LoadImage32 (filename, width, height, (unsigned *)data, 0);
 		else
+		{
 			Con_Printf ("Couldn't load %s\n", filename);
+			skybox_textures[i] = notexture;
+		}
 		Hunk_FreeToLowMark (mark);
 	}
 
@@ -208,13 +191,17 @@ Sky_NewMap
 */
 void Sky_NewMap (void)
 {
-	char key[128], value[4096];
-	char *data;
-
-	if (isDedicated)
-		return;
+	char	key[128], value[4096];
+	char	*data;
+	int		i;
 
 	//initially no skybox
+	for (i=0; i<6; i++)
+	{
+		if (skybox_textures[i] && skybox_textures[i] != notexture)
+			TexMgr_FreeTexture (skybox_textures[i]);
+		skybox_textures[i] = notexture;
+	}
 	skybox_name[0] = 0;
 
 	data = cl.worldmodel->entities;
@@ -246,6 +233,13 @@ void Sky_NewMap (void)
 
 		if (!strcmp("sky", key))
 			Sky_LoadSkyBox(value);
+
+#if 1 //also accept non-standard keys
+		else if (!strcmp("skyname", key))
+			Sky_LoadSkyBox(value);
+		else if (!strcmp("qlsky", key))
+			Sky_LoadSkyBox(value);
+#endif
 	}
 }
 
@@ -488,6 +482,9 @@ void Sky_ProcessPoly (msurface_t *s)
 		glVertex3fv (v);
 	glEnd ();
 
+	rs_brushpolys++; //johnfitz
+	rs_brushpasses++; //johnfitz
+
 	//update sky bounds
 	if (!r_fastsky.value && !r_drawflat.value)
 	{
@@ -514,8 +511,6 @@ void Sky_ProcessBrushModel (entity_t *e)
 	qboolean	rotated;
 
 	currententity = e;
-	currenttexture = -1;
-
 	clmodel = e->model;
 
 	if (clmodel == cl.worldmodel) //does this ever happen?
@@ -740,7 +735,7 @@ void Sky_DrawSkyBox (void)
 		if (skymins[0][i] >= skymaxs[0][i] || skymins[1][i] >= skymaxs[1][i])
 			continue;
 
-		GL_Bind (skybox_texnum+skytexorder[i]);
+		GL_Bind (skybox_textures[skytexorder[i]]);
 
 #if 1 //TEST
 		skymins[0][i] = -1;
@@ -756,6 +751,7 @@ void Sky_DrawSkyBox (void)
 		glEnd ();
 
 		rs_skypolys++;
+		rs_skypasses++;
 	}
 }
 
@@ -767,51 +763,26 @@ void Sky_DrawSkyBox (void)
 
 /*
 =============
-Sky_DrawFaceQuadLayer
-
-TODO: clean up this mess
+Sky_GetTexCoord
 =============
 */
-void Sky_DrawFaceQuadLayer (glpoly_t *p)
+void Sky_GetTexCoord (vec3_t v, float speed, float *s, float *t)
 {
 	vec3_t	dir;
-	float	s, t, length, solidscroll, alphascroll;
-	float	*v;
-	int		i;
+	float	length, scroll;
 
-	solidscroll = cl.time*8;
-	solidscroll -= (int)solidscroll & ~127;
-		
-	alphascroll = cl.time*16;
-	alphascroll -= (int)alphascroll & ~127;
+	VectorSubtract (v, r_origin, dir);
+	dir[2] *= 3;	// flatten the sphere
 
-	glBegin (GL_QUADS);
-	for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
-	{
-		VectorSubtract (v, r_origin, dir);
-		dir[2] *= 3;	// flatten the sphere
+	length = dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2];
+	length = sqrt (length);
+	length = 6*63/length;
 
-		length = dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2];
-		length = sqrt (length);
-		length = 6*63/length;
+	scroll = cl.time*speed;
+	scroll -= (int)scroll & ~127;
 
-		dir[0] *= length;
-		dir[1] *= length;
-
-		s = (speedscale + dir[0]) * (1.0/128);
-		t = (speedscale + dir[1]) * (1.0/128);
-
-		if(mtexenabled)
-		{
-			qglMTexCoord2fSGIS (TEXTURE0_SGIS, (solidscroll + dir[0]) * (1.0/128), (solidscroll + dir[1]) * (1.0/128));
-			qglMTexCoord2fSGIS (TEXTURE1_SGIS, (alphascroll + dir[0]) * (1.0/128), (alphascroll + dir[1]) * (1.0/128));
-		}
-		else
-			glTexCoord2f (s, t);
-
-		glVertex3fv (v);
-	}
-	glEnd ();
+	*s = (scroll + dir[0] * length) * (1.0/128);
+	*t = (scroll + dir[1] * length) * (1.0/128);
 }
 
 /*
@@ -821,37 +792,65 @@ Sky_DrawFaceQuad
 */
 void Sky_DrawFaceQuad (glpoly_t *p)
 {
-	if (mtexenabled)
-		GL_DisableMultitexture();
+	float	s, t;
+	float	*v;
+	int		i;
 
 	if (gl_mtexable)
 	{
-		GL_SelectTexture(TEXTURE0_SGIS);
+		GL_DisableMultitexture(); // selects TEXTURE0
 		GL_Bind (solidskytexture);
-
-		GL_EnableMultitexture(); // selects TEXTURE1_SGIS 
+		GL_EnableMultitexture(); // selects TEXTURE1 
 		GL_Bind (alphaskytexture);
 		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
 		glEnable(GL_BLEND);
 
-		Sky_DrawFaceQuadLayer (p);
+		glBegin (GL_QUADS);
+		for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
+		{
+			Sky_GetTexCoord (v, 8, &s, &t);
+			GL_MTexCoord2fFunc (TEXTURE0, s, t);
+			Sky_GetTexCoord (v, 16, &s, &t);
+			GL_MTexCoord2fFunc (TEXTURE1, s, t);
+			glVertex3fv (v);
+		}
+		glEnd ();
 
 		glDisable(GL_BLEND);
 		GL_DisableMultitexture();
+
+		rs_skypolys++;
+		rs_skypasses++;
 	}
 	else
 	{
 		GL_Bind (solidskytexture);
-		speedscale = cl.time*8;
-		speedscale -= (int)speedscale & ~127;
-		Sky_DrawFaceQuadLayer (p);
+
+		glBegin (GL_QUADS);
+		for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
+		{
+			Sky_GetTexCoord (v, 8, &s, &t);
+			glTexCoord2f (s, t);
+			glVertex3fv (v);
+		}
+		glEnd ();
 
 		GL_Bind (alphaskytexture);
 		glEnable (GL_BLEND);
-		speedscale = cl.time*16;
-		speedscale -= (int)speedscale & ~127;
-		Sky_DrawFaceQuadLayer (p);
+
+		glBegin (GL_QUADS);
+		for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
+		{
+			Sky_GetTexCoord (v, 16, &s, &t);
+			glTexCoord2f (s, t);
+			glVertex3fv (v);
+		}
+		glEnd ();
+
 		glDisable (GL_BLEND);
+
+		rs_skypolys++;
+		rs_skypasses += 2;
 	}
 }
 
@@ -914,28 +913,25 @@ void Sky_DrawFace (int axis)
 	{
 		for (j=0; j<dj; j++)
 		{
-			if (i*qi >= skymins[0][axis]/2+0.5 - qi && 
-				i*qi <= skymaxs[0][axis]/2+0.5 && 
-				j*qj >= skymins[1][axis]/2+0.5 - qj && 
-				j*qj <= skymaxs[1][axis]/2+0.5)
-			{
-				//if (i%2 ^ j%2) continue; //checkerboard test
-				VectorScale (vright, qi*i, temp);
-				VectorScale (vup, qj*j, temp2); 
-				VectorAdd(temp,temp2,temp);
-				VectorAdd(verts[0],temp,p->verts[0]);
+			if (i*qi < skymins[0][axis]/2+0.5 - qi || i*qi > skymaxs[0][axis]/2+0.5 || 
+				j*qj < skymins[1][axis]/2+0.5 - qj || j*qj > skymaxs[1][axis]/2+0.5)
+				continue;
+			
+			//if (i&1 ^ j&1) continue; //checkerboard test
+			VectorScale (vright, qi*i, temp);
+			VectorScale (vup, qj*j, temp2); 
+			VectorAdd(temp,temp2,temp);
+			VectorAdd(verts[0],temp,p->verts[0]);
 
-				VectorScale (vup, qj, temp);
-				VectorAdd (p->verts[0],temp,p->verts[1]);
+			VectorScale (vup, qj, temp);
+			VectorAdd (p->verts[0],temp,p->verts[1]);
 
-				VectorScale (vright, qi, temp);
-				VectorAdd (p->verts[1],temp,p->verts[2]);
+			VectorScale (vright, qi, temp);
+			VectorAdd (p->verts[1],temp,p->verts[2]);
 
-				VectorAdd (p->verts[0],temp,p->verts[3]);
+			VectorAdd (p->verts[0],temp,p->verts[3]);
 
-				Sky_DrawFaceQuad (p);
-				rs_skypolys++;
-			}
+			Sky_DrawFaceQuad (p);	
 		}
 	}
 	Hunk_FreeToLowMark (start);
@@ -991,7 +987,7 @@ void Sky_DrawSky (void)
 			glDepthFunc(GL_GEQUAL);
 		glDepthMask(0);
 
-		if (strlen(skybox_name))
+		if (skybox_name[0])
 			Sky_DrawSkyBox ();
 		else
 		{

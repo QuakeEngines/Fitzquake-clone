@@ -51,35 +51,30 @@ client_t	*host_client;			// current client
 
 jmp_buf 	host_abortserver;
 
-byte		*host_basepal;
 byte		*host_colormap;
 
 cvar_t	host_framerate = {"host_framerate","0"};	// set for slow motion
 cvar_t	host_speeds = {"host_speeds","0"};			// set for running times
+cvar_t	host_maxfps = {"host_maxfps", "72", true}; //johnfitz
 
-cvar_t	sys_ticrate = {"sys_ticrate","0.05"};
+cvar_t	sys_ticrate = {"sys_ticrate","0.05"}; // dedicated server
 cvar_t	serverprofile = {"serverprofile","0"};
 
 cvar_t	fraglimit = {"fraglimit","0",false,true};
 cvar_t	timelimit = {"timelimit","0",false,true};
 cvar_t	teamplay = {"teamplay","0",false,true};
-
 cvar_t	samelevel = {"samelevel","0"};
 cvar_t	noexit = {"noexit","0",false,true};
-
-#ifdef QUAKE2
-cvar_t	developer = {"developer","1"};	// should be 0 for release!
-#else
-cvar_t	developer = {"developer","0"};
-#endif
-
 cvar_t	skill = {"skill","1"};						// 0 - 3
 cvar_t	deathmatch = {"deathmatch","0"};			// 0, 1, or 2
 cvar_t	coop = {"coop","0"};			// 0 or 1
 
 cvar_t	pausable = {"pausable","1"};
 
+cvar_t	developer = {"developer","0"};
+
 cvar_t	temp1 = {"temp1","0"};
+
 
 
 /*
@@ -212,6 +207,7 @@ void Host_InitLocal (void)
 
 	Cvar_RegisterVariable (&host_framerate, NULL);
 	Cvar_RegisterVariable (&host_speeds, NULL);
+	Cvar_RegisterVariable (&host_maxfps, NULL); //johnfitz
 
 	Cvar_RegisterVariable (&sys_ticrate, NULL);
 	Cvar_RegisterVariable (&serverprofile, NULL);
@@ -488,8 +484,11 @@ void Host_ClearMemory (void)
 }
 
 
-//============================================================================
-
+//==============================================================================
+//
+// Host Frame
+//
+//==============================================================================
 
 /*
 ===================
@@ -500,27 +499,26 @@ Returns false if the time is too short to run a frame
 */
 qboolean Host_FilterTime (float time)
 {
+	float maxfps; //johnfitz
+
 	realtime += time;
 
-	if (!cls.timedemo && realtime - oldrealtime < 1.0/72.0)
-		return false;		// framerate is too high
+	//johnfitz -- max fps cvar
+	maxfps = CLAMP (10.0, host_maxfps.value, 1000.0);
+	if (!cls.timedemo && realtime - oldrealtime < 1.0/maxfps)
+		return false; // framerate is too high
+	//johnfitz
 
 	host_frametime = realtime - oldrealtime;
 	oldrealtime = realtime;
 
 	if (host_framerate.value > 0)
 		host_frametime = host_framerate.value;
-	else
-	{	// don't allow really long or short frames
-		if (host_frametime > 0.1)
-			host_frametime = 0.1;
-		if (host_frametime < 0.001)
-			host_frametime = 0.001;
-	}
+	else // don't allow really long or short frames
+		host_frametime = CLAMP (0.001, host_frametime, 0.11); //johnfitz -- use CLAMP
 	
 	return true;
 }
-
 
 /*
 ===================
@@ -542,61 +540,11 @@ void Host_GetConsoleCommands (void)
 	}
 }
 
-
 /*
 ==================
 Host_ServerFrame
-
 ==================
 */
-#ifdef FPS_20
-
-void _Host_ServerFrame (void)
-{
-// run the world state	
-	pr_global_struct->frametime = host_frametime;
-
-// read client messages
-	SV_RunClients ();
-	
-// move things around and think
-// always pause in single player if in console or menus
-	if (!sv.paused && (svs.maxclients > 1 || key_dest == key_game) )
-		SV_Physics ();
-}
-
-void Host_ServerFrame (void)
-{
-	float	save_host_frametime;
-	float	temp_host_frametime;
-
-// run the world state	
-	pr_global_struct->frametime = host_frametime;
-
-// set the time and clear the general datagram
-	SV_ClearDatagram ();
-	
-// check for new clients
-	SV_CheckForNewClients ();
-
-	temp_host_frametime = save_host_frametime = host_frametime;
-	while(temp_host_frametime > (1.0/72.0))
-	{
-		if (temp_host_frametime > 0.05)
-			host_frametime = 0.05;
-		else
-			host_frametime = temp_host_frametime;
-		temp_host_frametime -= host_frametime;
-		_Host_ServerFrame ();
-	}
-	host_frametime = save_host_frametime;
-
-// send all messages to the clients
-	SV_SendClientMessages ();
-}
-
-#else
-
 void Host_ServerFrame (void)
 {
 // run the world state	
@@ -619,9 +567,6 @@ void Host_ServerFrame (void)
 // send all messages to the clients
 	SV_SendClientMessages ();
 }
-
-#endif
-
 
 /*
 ==================
@@ -699,6 +644,8 @@ void _Host_Frame (float time)
 		
 	SCR_UpdateScreen ();
 
+	CL_RunParticles (); //johnfitz -- seperated from rendering
+
 	if (host_speeds.value)
 		time2 = Sys_FloatTime ();
 		
@@ -763,71 +710,6 @@ void Host_Frame (float time)
 	Con_Printf ("serverprofile: %2i clients %2i msec\n",  c,  m);
 }
 
-//============================================================================
-
-
-extern int vcrFile;
-#define	VCR_SIGNATURE	0x56435231
-// "VCR1"
-
-void Host_InitVCR (quakeparms_t *parms)
-{
-	int		i, len, n;
-	char	*p;
-	
-	if (COM_CheckParm("-playback"))
-	{
-		if (com_argc != 2)
-			Sys_Error("No other parameters allowed with -playback\n");
-
-		Sys_FileOpenRead("quake.vcr", &vcrFile);
-		if (vcrFile == -1)
-			Sys_Error("playback file not found\n");
-
-		Sys_FileRead (vcrFile, &i, sizeof(int));
-		if (i != VCR_SIGNATURE)
-			Sys_Error("Invalid signature in vcr file\n");
-
-		Sys_FileRead (vcrFile, &com_argc, sizeof(int));
-		com_argv = malloc(com_argc * sizeof(char *));
-		com_argv[0] = parms->argv[0];
-		for (i = 0; i < com_argc; i++)
-		{
-			Sys_FileRead (vcrFile, &len, sizeof(int));
-			p = malloc(len);
-			Sys_FileRead (vcrFile, p, len);
-			com_argv[i+1] = p;
-		}
-		com_argc++; /* add one for arg[0] */
-		parms->argc = com_argc;
-		parms->argv = com_argv;
-	}
-
-	if ( (n = COM_CheckParm("-record")) != 0)
-	{
-		vcrFile = Sys_FileOpenWrite("quake.vcr");
-
-		i = VCR_SIGNATURE;
-		Sys_FileWrite(vcrFile, &i, sizeof(int));
-		i = com_argc - 1;
-		Sys_FileWrite(vcrFile, &i, sizeof(int));
-		for (i = 1; i < com_argc; i++)
-		{
-			if (i == n)
-			{
-				len = 10;
-				Sys_FileWrite(vcrFile, &len, sizeof(int));
-				Sys_FileWrite(vcrFile, "-playback", len);
-				continue;
-			}
-			len = Q_strlen(com_argv[i]) + 1;
-			Sys_FileWrite(vcrFile, &len, sizeof(int));
-			Sys_FileWrite(vcrFile, com_argv[i], len);
-		}
-	}
-	
-}
-
 /*
 ====================
 Host_Init
@@ -858,7 +740,6 @@ void Host_Init (quakeparms_t *parms)
 	Cvar_Init (); //johnfitz
 	V_Init ();
 	Chase_Init ();
-	Host_InitVCR (parms);
 	COM_Init (parms->basedir);
 	Host_InitLocal ();
 	W_LoadWadFile ("gfx.wad");
@@ -875,13 +756,8 @@ void Host_Init (quakeparms_t *parms)
 	Con_Printf ("Exe: "__TIME__" "__DATE__"\n");
 	Con_Printf ("%4.1f megabyte heap\n",parms->memsize/ (1024*1024.0));
 	
-	R_InitTextures ();		// needed even for dedicated servers
- 
 	if (cls.state != ca_dedicated)
 	{
-		host_basepal = (byte *)COM_LoadHunkFile ("gfx/palette.lmp");
-		if (!host_basepal)
-			Sys_Error ("Couldn't load gfx/palette.lmp");
 		host_colormap = (byte *)COM_LoadHunkFile ("gfx/colormap.lmp");
 		if (!host_colormap)
 			Sys_Error ("Couldn't load gfx/colormap.lmp");
@@ -889,8 +765,8 @@ void Host_Init (quakeparms_t *parms)
 #ifndef _WIN32 // on non win32, mouse comes before video for security reasons
 		IN_Init ();
 #endif
-		VID_Init (host_basepal);
-
+		VID_Init ();
+		TexMgr_Init (); //johnfitz
 		Draw_Init ();
 		SCR_Init ();
 		R_Init ();
@@ -920,7 +796,7 @@ void Host_Init (quakeparms_t *parms)
 
 	host_initialized = true;
 	
-	Sys_Printf ("========Quake Initialized=========\n");	
+	Con_Printf ("\n========= Quake Initialized =========\n\n"); //johnfitz - was Sys_Printf
 }
 
 

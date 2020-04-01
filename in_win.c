@@ -486,6 +486,11 @@ IN_Init
 */
 void IN_Init (void)
 {
+	//johnfitz -- clean up init readouts
+	//Con_Printf("------------- Init Input -------------\n");
+	//Con_Printf("%cInput Init\n", 2);
+	//johnfitz
+
 	// mouse variables
 	Cvar_RegisterVariable (&m_filter, NULL);
 
@@ -864,7 +869,7 @@ void IN_StartupJoystick (void)
 	joy_avail = true; 
 	joy_advancedinit = false;
 
-	Con_Printf ("\njoystick detected\n\n"); 
+	Con_Printf ("joystick detected\n"); //johnfitz -- fewer newlines
 }
 
 

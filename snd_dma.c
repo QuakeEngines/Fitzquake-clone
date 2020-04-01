@@ -167,11 +167,14 @@ S_Init
 */
 void S_Init (void)
 {
-
-	Con_Printf("\nSound Initialization\n");
-
 	if (COM_CheckParm("-nosound"))
 		return;
+
+	//johnfitz -- clean up init readouts
+	Con_Printf("Sound Initialization\n");
+	//Con_Printf("------------- Init Sound -------------\n");
+	//Con_Printf("%cSound Init\n", 2);
+	//johnfitz
 
 	if (COM_CheckParm("-simsound"))
 		fakedma = true;

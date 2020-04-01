@@ -63,8 +63,6 @@ extern	int		key_linepos;
 		
 qboolean	con_initialized;
 
-int			con_notifylines;		// scan lines to clear for notify lines
-
 extern void M_Menu_Main_f (void);
 
 /*
@@ -78,7 +76,7 @@ char *Con_Quakebar (int len)
 	int i;
 
 	len = min(len, sizeof(bar) - 1);
-	len = min(len, vid.conwidth/8 - 2);
+	len = min(len, con_linewidth);
 
 	bar[0] = '\35';
 	for (i = 1; i < len - 1; i++)
@@ -260,49 +258,38 @@ void Con_CheckResize (void)
 	int		i, j, width, oldwidth, oldtotallines, numlines, numchars;
 	char	tbuf[CON_TEXTSIZE];
 
-	width = (vid.width >> 3) - 2;
+	width = (vid.conwidth >> 3) - 2; //johnfitz -- use vid.conwidth instead of vid.width
 
 	if (width == con_linewidth)
 		return;
 
-	if (width < 1)			// video hasn't been initialized yet
+	oldwidth = con_linewidth;
+	con_linewidth = width;
+	oldtotallines = con_totallines;
+	con_totallines = CON_TEXTSIZE / con_linewidth;
+	numlines = oldtotallines;
+
+	if (con_totallines < numlines)
+		numlines = con_totallines;
+
+	numchars = oldwidth;
+
+	if (con_linewidth < numchars)
+		numchars = con_linewidth;
+
+	Q_memcpy (tbuf, con_text, CON_TEXTSIZE);
+	Q_memset (con_text, ' ', CON_TEXTSIZE);
+
+	for (i=0 ; i<numlines ; i++)
 	{
-		width = 38;
-		con_linewidth = width;
-		con_totallines = CON_TEXTSIZE / con_linewidth;
-		Q_memset (con_text, ' ', CON_TEXTSIZE);
-	}
-	else
-	{
-		oldwidth = con_linewidth;
-		con_linewidth = width;
-		oldtotallines = con_totallines;
-		con_totallines = CON_TEXTSIZE / con_linewidth;
-		numlines = oldtotallines;
-
-		if (con_totallines < numlines)
-			numlines = con_totallines;
-
-		numchars = oldwidth;
-	
-		if (con_linewidth < numchars)
-			numchars = con_linewidth;
-
-		Q_memcpy (tbuf, con_text, CON_TEXTSIZE);
-		Q_memset (con_text, ' ', CON_TEXTSIZE);
-
-		for (i=0 ; i<numlines ; i++)
+		for (j=0 ; j<numchars ; j++)
 		{
-			for (j=0 ; j<numchars ; j++)
-			{
-				con_text[(con_totallines - 1 - i) * con_linewidth + j] =
-						tbuf[((con_current - i + oldtotallines) %
-							  oldtotallines) * oldwidth + j];
-			}
+			con_text[(con_totallines - 1 - i) * con_linewidth + j] =
+					tbuf[((con_current - i + oldtotallines) % oldtotallines) * oldwidth + j];
 		}
-
-		Con_ClearNotify ();
 	}
+
+	Con_ClearNotify ();
 
 	con_backscroll = 0;
 	con_current = con_totallines - 1;
@@ -334,7 +321,13 @@ void Con_Init (void)
 	con_text = Hunk_AllocName (CON_TEXTSIZE, "context");
 	Q_memset (con_text, ' ', CON_TEXTSIZE);
 	con_linewidth = -1;
-	Con_CheckResize ();
+
+	//johnfitz -- no need to run Con_CheckResize here
+	con_linewidth = 38;
+	con_totallines = CON_TEXTSIZE / con_linewidth;
+	con_backscroll = 0;
+	con_current = con_totallines - 1;
+	//johnfitz
 	
 	Con_Printf ("Console initialized.\n");
 
@@ -363,8 +356,8 @@ void Con_Linefeed (void)
 	//johnfitz -- improved scrolling
 	if (con_backscroll)
 		con_backscroll++;
-	if (con_backscroll > con_totallines - (vid.height>>3) - 1)
-		con_backscroll = con_totallines - (vid.height>>3) - 1;
+	if (con_backscroll > con_totallines - (glheight>>3) - 1)
+		con_backscroll = con_totallines - (glheight>>3) - 1;
 	//johnfitz
 	
 	con_x = 0;
@@ -591,7 +584,7 @@ void Con_CenterPrintf (int linewidth, char *fmt, ...)
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
 
-//	linewidth = min (linewidth, vid.conwidth>>3);
+//	linewidth = min (linewidth, con_linewidth);
 	start = msg;
 	do 
 	{
@@ -641,11 +634,260 @@ void Con_LogCenterPrint (char *str)
 /*
 ==============================================================================
 
+	TAB COMPLETION
+
+==============================================================================
+*/
+
+//johnfitz -- tab completion stuff
+//unique defs
+char key_tabpartial[MAXCMDLINE];
+typedef struct tab_s
+{
+	char			*name;
+	char			*type;
+	struct tab_s	*next;
+	struct tab_s	*prev;
+} tab_t;
+tab_t	*tablist;
+
+//defs from elsewhere
+extern qboolean	keydown[256];
+typedef struct cmd_function_s
+{
+	struct cmd_function_s	*next;
+	char					*name;
+	xcommand_t				function;
+} cmd_function_t;
+extern	cmd_function_t	*cmd_functions;
+#define	MAX_ALIAS_NAME	32
+typedef struct cmdalias_s
+{
+	struct cmdalias_s	*next;
+	char	name[MAX_ALIAS_NAME];
+	char	*value;
+} cmdalias_t;
+extern	cmdalias_t	*cmd_alias;
+
+/*
+============
+AddToTabList -- johnfitz
+
+tablist is a doubly-linked loop
+============
+*/
+void AddToTabList (char *name, char *type)
+{
+	tab_t	*t;
+
+	t = Hunk_Alloc(sizeof(tab_t));
+	t->name = name;
+	t->type = type;
+
+	if (tablist) //list not empty
+	{
+		t->next = tablist;
+		t->prev = tablist->prev;
+		t->next->prev = t; 
+		t->prev->next = t;
+		tablist = t;
+	}
+	else //list empty
+	{
+		tablist = t;
+		t->next = t;
+		t->prev = t;
+	}
+}
+
+/*
+============
+BuildTabList -- johnfitz
+============
+*/
+void BuildTabList (char *partial)
+{
+	cmdalias_t		*alias;
+	cvar_t			*cvar;
+	cmd_function_t	*cmd;
+	int				len;
+
+	tablist = NULL;
+	len = strlen(partial);
+
+	for (cvar=cvar_vars ; cvar ; cvar=cvar->next)
+		if (!Q_strncmp (partial, cvar->name, len))
+			AddToTabList (cvar->name, "cvar");
+
+	for (cmd=cmd_functions ; cmd ; cmd=cmd->next)
+		if (!Q_strncmp (partial,cmd->name, len))
+			AddToTabList (cmd->name, "command");
+
+	for (alias=cmd_alias ; alias ; alias=alias->next)
+		if (!Q_strncmp (partial, alias->name, len))
+			AddToTabList (alias->name, "alias");
+}
+
+/*
+============
+Con_TabComplete -- johnfitz
+============
+*/
+void Con_TabComplete (void)
+{
+	char	partial[MAXCMDLINE];
+	char	*c, *match;
+	tab_t	*t;
+	int		mark, i;
+
+// if editline is empty, return
+	if (key_lines[edit_line][1] == 0)
+		return;
+
+// get partial string (space -> cursor)
+	//work back from cursor until you find a space, quote, semicolon, or prompt
+	c = key_lines[edit_line] + key_linepos - 1; //start one space left of cursor
+	while (*c!=' ' && *c!='\"' && *c!=';' && c!=key_lines[edit_line])
+		c--;
+	c++; //start 1 char after the seperator we just found
+	for (i = 0; c + i < key_lines[edit_line] + key_linepos; i++)
+		partial[i] = c[i];
+	partial[i] = 0;
+
+//if partial is empty, return
+	if (partial[0] == 0)
+		return;
+
+// find a match
+	mark = Hunk_LowMark();
+	if (!Q_strlen(key_tabpartial)) //first time through
+	{
+		Q_strcpy (key_tabpartial, partial);
+		BuildTabList (key_tabpartial);
+
+		if (!tablist)
+			return;
+
+		//print list
+		t = tablist->prev; //back through list becuase it's in reverse order
+		do 
+		{
+			Con_SafePrintf("   %s (%s)\n", t->name, t->type);
+			t = t->prev;
+		} while (t != tablist->prev);
+
+		//get first match
+		match = tablist->prev->name;
+	}
+	else
+	{
+		BuildTabList (key_tabpartial);
+
+		if (!tablist)
+			return;
+
+		//find current match -- can't save a pointer because the list will be rebuilt each time
+		t = tablist;
+		do 
+		{
+			if (!Q_strncmp(t->name, partial, strlen(t->name)))
+				break;
+			t = t->next;
+		} while (t != tablist);
+
+		//use next or prev to find next match (reverse since list is backwards)
+		match = keydown[K_SHIFT] ? t->next->name : t->prev->name;
+	}
+	Hunk_FreeToLowMark(mark); //free it here becuase match is a pointer to persistent data
+
+// insert new match into edit line
+	Q_strcpy (partial, match); //first copy match string
+	Q_strcat (partial, key_lines[edit_line] + key_linepos); //then add chars after cursor
+	Q_strcpy (c, partial); //now copy all of this into edit line
+	key_linepos = c - key_lines[edit_line] + Q_strlen(match); //set new cursor position
+
+// if cursor is at end of string, let's append a space to make life easier
+//	if (key_lines[edit_line][key_linepos] == 0)
+//	{
+//		key_lines[edit_line][key_linepos] = ' ';
+//		key_linepos++;
+//		key_lines[edit_line][key_linepos] = 0;
+//	}
+}
+
+/*
+==============================================================================
+
 DRAWING
 
 ==============================================================================
 */
 
+/*
+================
+Con_DrawNotify
+
+Draws the last few lines of output transparently over the game top
+================
+*/
+void Con_DrawNotify (void)
+{
+	int		x, v;
+	char	*text;
+	int		i;
+	float	time;
+	extern char chat_buffer[];
+
+	GL_SetCanvas (CANVAS_CONSOLE); //johnfitz
+	v = vid.conheight; //johnfitz
+
+	for (i= con_current-NUM_CON_TIMES+1 ; i<=con_current ; i++)
+	{
+		if (i < 0)
+			continue;
+		time = con_times[i % NUM_CON_TIMES];
+		if (time == 0)
+			continue;
+		time = realtime - time;
+		if (time > con_notifytime.value)
+			continue;
+		text = con_text + (i % con_totallines)*con_linewidth;
+		
+		clearnotify = 0;
+
+		for (x = 0 ; x < con_linewidth ; x++)
+			Draw_Character ( (x+1)<<3, v, text[x]);
+
+		v += 8;
+	}
+
+
+	if (key_dest == key_message)
+	{
+		char *say_prompt; //johnfitz
+
+		clearnotify = 0;
+	
+		x = 0;
+		
+		//johnfitz -- distinguish say and say_team
+		if (team_message)
+			say_prompt = "say_team:";
+		else
+			say_prompt = "say:";
+		//johnfitz
+
+		Draw_String (8, v, say_prompt); //johnfitz
+
+		while(chat_buffer[x])
+		{
+			Draw_Character ( (x+strlen(say_prompt)+2)<<3, v, chat_buffer[x]); //johnfitz
+			x++;
+		}
+		Draw_Character ( (x+strlen(say_prompt)+2)<<3, v, 10+((int)(realtime*con_cursorspeed)&1)); //johnfitz
+		v += 8;
+	}
+}
 
 /*
 ================
@@ -680,83 +922,13 @@ void Con_DrawInput (void)
 		text += 1 + key_linepos - con_linewidth;
 		
 // draw input string
-	for (i=0; i <= strlen(key_lines[edit_line]); i++)
-		Draw_Character ((i+1)<<3, con_vislines - 16, text[i]);
-}
-
-
-/*
-================
-Con_DrawNotify
-
-Draws the last few lines of output transparently over the game top
-================
-*/
-void Con_DrawNotify (void)
-{
-	int		x, v;
-	char	*text;
-	int		i;
-	float	time;
-	extern char chat_buffer[];
-
-	v = 0;
-	for (i= con_current-NUM_CON_TIMES+1 ; i<=con_current ; i++)
-	{
-		if (i < 0)
-			continue;
-		time = con_times[i % NUM_CON_TIMES];
-		if (time == 0)
-			continue;
-		time = realtime - time;
-		if (time > con_notifytime.value)
-			continue;
-		text = con_text + (i % con_totallines)*con_linewidth;
-		
-		clearnotify = 0;
-		scr_copytop = 1;
-
-		for (x = 0 ; x < con_linewidth ; x++)
-			Draw_Character ( (x+1)<<3, v, text[x]);
-
-		v += 8;
-	}
-
-
-	if (key_dest == key_message)
-	{
-		char *say_prompt; //johnfitz
-
-		clearnotify = 0;
-		scr_copytop = 1;
-	
-		x = 0;
-		
-		//johnfitz -- distinguish say and say_team
-		if (team_message)
-			say_prompt = "say_team:";
-		else
-			say_prompt = "say:";
-		//johnfitz
-
-		Draw_String (8, v, say_prompt); //johnfitz
-
-		while(chat_buffer[x])
-		{
-			Draw_Character ( (x+strlen(say_prompt)+2)<<3, v, chat_buffer[x]); //johnfitz
-			x++;
-		}
-		Draw_Character ( (x+strlen(say_prompt)+2)<<3, v, 10+((int)(realtime*con_cursorspeed)&1)); //johnfitz
-		v += 8;
-	}
-	
-	if (v > con_notifylines)
-		con_notifylines = v;
+	for (i=0; i <= strlen(text) - 1; i++) //only write enough letters to go from *text to cursor
+		Draw_Character ((i+1)<<3, vid.conheight - 16, text[i]);
 }
 
 /*
 ================
-Con_DrawConsole
+Con_DrawConsole -- johnfitz -- heavy revision
 
 Draws the console with the solid background
 The typing input line at the bottom should only be drawn if typing is allowed
@@ -764,37 +936,26 @@ The typing input line at the bottom should only be drawn if typing is allowed
 */
 void Con_DrawConsole (int lines, qboolean drawinput)
 {
-	int				i, x, y;
-	int				rows;
+	int				i, x, y, j, sb, rows;
+	char			ver[32];
 	char			*text;
-	int				j;
-	int				sb; //johnfitz -- improved scrolling
-	char			ver[32]; //johnfitz
 	
 	if (lines <= 0)
 		return;
 
+	con_vislines = lines * vid.conheight / glheight;
+	GL_SetCanvas (CANVAS_CONSOLE);
+
 // draw the background
-	Draw_ConsoleBackground (lines);
+	Draw_ConsoleBackground ();
 
-// draw the text
-	con_vislines = lines;
-
-	rows = (lines-16)>>3;		// rows of text to draw
-	y = lines - 16 - (rows<<3);	// may start slightly negative
-
-
-	//johnfitz -- improved scrolling
-	if (con_backscroll)
-		sb=2;
-	else
-		sb=0;
-	//johnfitz
-
-	//johnfitz -- improved scrolling
-	//for (i= con_current - rows + 1 ; i<=con_current ; i++, y+=8 )
-	for (i= con_current - rows + 1 ; i<=con_current - sb ; i++, y+=8)
-	//johnfitz
+// draw the buffer text
+	rows = (con_vislines+7)/8;
+	y = vid.conheight - rows*8;
+	rows -= 2; //for input and version lines
+	sb = (con_backscroll) ? 2 : 0;
+	
+	for (i = con_current - rows + 1 ; i <= con_current - sb ; i++, y+=8)
 	{
 		j = i - con_backscroll;
 		if (j<0)
@@ -805,31 +966,24 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 			Draw_Character ( (x+1)<<3, y, text[x]);
 	}
 
-	//johnfitz -- improved scrolling
-	if (sb)
+// draw scrollback arrows
+	if (con_backscroll)
 	{
-		y+=8; // skip a line
-			
-		// draw arrows to show the buffer is backscrolled
+		y+=8; // blank line
 		for (x=0 ; x<con_linewidth ; x+=4)
 			Draw_Character ((x+1)<<3, y, '^');
+		y+=8;
 	}
-	//johnfitz
 
-	// draw the input prompt, user text, and cursor if desired
+// draw the input prompt, user text, and cursor
 	if (drawinput)
 		Con_DrawInput ();
 	
-	//johnfitz -- draw fitzquake version number in bottom right
+//draw version number in bottom right
 	y+=8;
-	//HACK -- version was being displayed one line too high when console scrolled back
-	if (sb)
-		y+=8;
-	//END HACK
 	sprintf (ver, "FitzQuake %1.2f", (float)FITZQUAKE_VERSION);
 	for (x=0; x<strlen(ver); x++)
 		Draw_Character ((con_linewidth-strlen(ver)+x+2)<<3, y, ver[x] /*+ 128*/);
-	//johnfitz
 }
 
 

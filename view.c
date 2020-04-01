@@ -31,9 +31,6 @@ when crossing a water boudnary.
 
 */
 
-cvar_t		lcd_x = {"lcd_x","0"};
-cvar_t		lcd_yaw = {"lcd_yaw","0"};
-
 cvar_t	scr_ofsx = {"scr_ofsx","0", false};
 cvar_t	scr_ofsy = {"scr_ofsy","0", false};
 cvar_t	scr_ofsz = {"scr_ofsz","0", false};
@@ -59,8 +56,6 @@ cvar_t	v_ipitch_level = {"v_ipitch_level", "0.3", false};
 cvar_t	v_idlescale = {"v_idlescale", "0", false};
 
 cvar_t	crosshair = {"crosshair", "0", true};
-cvar_t	cl_crossx = {"cl_crossx", "0", false};
-cvar_t	cl_crossy = {"cl_crossy", "0", false};
 
 cvar_t	gl_cshiftpercent = {"gl_cshiftpercent", "100", false};
 
@@ -238,14 +233,10 @@ void V_DriftPitch (void)
 	}
 }
 
-
-
-
-
 /*
 ============================================================================== 
  
-						PALETTE FLASHES 
+	VIEW BLENDING
  
 ============================================================================== 
 */ 
@@ -372,6 +363,7 @@ void V_SetContentsColor (int contents)
 	{
 	case CONTENTS_EMPTY:
 	case CONTENTS_SOLID:
+	case CONTENTS_SKY: //johnfitz -- no blend in sky
 		cl.cshifts[CSHIFT_CONTENTS] = cshift_empty;
 		break;
 	case CONTENTS_LAVA:
@@ -507,10 +499,48 @@ void V_UpdateBlend (void)
 		V_CalcBlend ();
 }
 
+/*
+============
+V_PolyBlend -- johnfitz -- moved here from gl_rmain.c, and rewritten to use glOrtho
+============
+*/
+void V_PolyBlend (void)
+{
+	if (!gl_polyblend.value || !v_blend[3] || cl.intermission)
+		return;
+
+	GL_DisableMultitexture();
+
+	glDisable (GL_ALPHA_TEST);
+	glDisable (GL_TEXTURE_2D);
+	glDisable (GL_DEPTH_TEST);
+	glEnable (GL_BLEND);
+
+	glMatrixMode(GL_PROJECTION);
+    glLoadIdentity ();
+	glOrtho (0, 1, 1, 0, -99999, 99999);
+	glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity ();
+
+	glColor4fv (v_blend);
+
+	glBegin (GL_QUADS);
+	glVertex2f (0,0);
+	glVertex2f (1, 0);
+	glVertex2f (1, 1);
+	glVertex2f (0, 1);
+	glEnd ();
+
+	glDisable (GL_BLEND);
+	glEnable (GL_DEPTH_TEST);
+	glEnable (GL_TEXTURE_2D);
+	glEnable (GL_ALPHA_TEST);
+}
+
 /* 
 ============================================================================== 
  
-						VIEW RENDERING 
+	VIEW RENDERING 
  
 ============================================================================== 
 */ 
@@ -684,7 +714,6 @@ void V_CalcIntermissionRefdef (void)
 /*
 ==================
 V_CalcRefdef
-
 ==================
 */
 void V_CalcRefdef (void)
@@ -694,7 +723,6 @@ void V_CalcRefdef (void)
 	vec3_t		forward, right, up;
 	vec3_t		angles;
 	float		bob;
-	float		fudge; //johnfitz
 	static float oldz = 0;
 
 	V_DriftPitch ();
@@ -707,12 +735,9 @@ void V_CalcRefdef (void)
 
 // transform the view offset by the model's matrix to get the offset from
 // model origin for the view
-	ent->angles[YAW] = cl.viewangles[YAW];	// the model should face
-										// the view dir
-	ent->angles[PITCH] = -cl.viewangles[PITCH];	// the model should face
-										// the view dir
+	ent->angles[YAW] = cl.viewangles[YAW];	// the model should face the view dir
+	ent->angles[PITCH] = -cl.viewangles[PITCH];	// the model should face the view dir
 										
-	
 	bob = V_CalcBob ();
 	
 // refresh position
@@ -731,18 +756,15 @@ void V_CalcRefdef (void)
 	V_AddIdle ();
 
 // offsets
-	angles[PITCH] = -ent->angles[PITCH];	// because entity pitches are
-											//  actually backward
+	angles[PITCH] = -ent->angles[PITCH]; // because entity pitches are actually backward
 	angles[YAW] = ent->angles[YAW];
 	angles[ROLL] = ent->angles[ROLL];
 
 	AngleVectors (angles, forward, right, up);
 
-	for (i=0 ; i<3 ; i++)
-		r_refdef.vieworg[i] += scr_ofsx.value*forward[i]
-			+ scr_ofsy.value*right[i]
-			+ scr_ofsz.value*up[i];
-	
+	if (cl.maxclients <= 1) //johnfitz -- moved cheat-protection here from V_RenderView
+		for (i=0 ; i<3 ; i++)
+			r_refdef.vieworg[i] += scr_ofsx.value*forward[i] + scr_ofsy.value*right[i] + scr_ofsz.value*up[i];
 	
 	V_BoundOffsets ();
 		
@@ -755,40 +777,10 @@ void V_CalcRefdef (void)
 	view->origin[2] += cl.viewheight;
 
 	for (i=0 ; i<3 ; i++)
-	{
 		view->origin[i] += forward[i]*bob*0.4;
-//		view->origin[i] += right[i]*bob*0.4;
-//		view->origin[i] += up[i]*bob*0.8;
-	}
 	view->origin[2] += bob;
 
-// fudge position around to keep amount of weapon visible
-// roughly equal with different FOV
-
-#if 0
-	if (cl.model_precache[cl.stats[STAT_WEAPON]] && strcmp (cl.model_precache[cl.stats[STAT_WEAPON]]->name,  "progs/v_shot2.mdl"))
-#endif
-
-	//johnfitz -- use the up vector to move the gun the right direction
-	{
-		if (scr_viewsize.value == 110)
-			fudge = 1;
-		else if (scr_viewsize.value == 100)
-			fudge = 2;
-		else if (scr_viewsize.value == 90)
-			fudge = 1;
-		else if (scr_viewsize.value == 80)
-			fudge = 0.5;
-
-		//new method (view relative up)
-	//	view->origin[0] += up[0]*fudge;
-	//	view->origin[1] += up[1]*fudge;
-	//	view->origin[2] += up[2]*fudge;
-		
-		//old method (absolute up)
-		//view->origin[2] += fudge; 
-	}
-	//johnfitz
+	//johnfitz -- removed all gun position fudging code (was used to keep gun from getting covered by sbar)
 
 	view->model = cl.model_precache[cl.stats[STAT_WEAPON]];
 	view->frame = cl.stats[STAT_WEAPONFRAME];
@@ -837,65 +829,25 @@ void V_RenderView (void)
 	if (con_forcedup)
 		return;
 
-// don't allow cheats in multiplayer
-	if (cl.maxclients > 1)
-	{
-		Cvar_Set ("scr_ofsx", "0");
-		Cvar_Set ("scr_ofsy", "0");
-		Cvar_Set ("scr_ofsz", "0");
-	}
-
 	if (cl.intermission)
-	{	// intermission / finale rendering
-		V_CalcIntermissionRefdef ();	
-	}
-	else
-	{
-		if (!cl.paused /* && (sv.maxclients > 1 || key_dest == key_game) */ )
-			V_CalcRefdef ();
-	}
+		V_CalcIntermissionRefdef ();
+	else if (!cl.paused /* && (cl.maxclients > 1 || key_dest == key_game) */)
+		V_CalcRefdef ();
 
-	R_PushDlights ();
+	//johnfitz -- removed lcd code
 
-	if (lcd_x.value)
-	{
-		//
-		// render two interleaved views
-		//
-		int		i;
+	R_RenderView ();
 
-		vid.rowbytes <<= 1;
-		vid.aspect *= 0.5;
-
-		r_refdef.viewangles[YAW] -= lcd_yaw.value;
-		for (i=0 ; i<3 ; i++)
-			r_refdef.vieworg[i] -= right[i]*lcd_x.value;
-		R_RenderView ();
-
-		vid.buffer += vid.rowbytes>>1;
-
-		R_PushDlights ();
-
-		r_refdef.viewangles[YAW] += lcd_yaw.value*2;
-		for (i=0 ; i<3 ; i++)
-			r_refdef.vieworg[i] += 2*right[i]*lcd_x.value;
-		R_RenderView ();
-
-		vid.buffer -= vid.rowbytes>>1;
-
-		r_refdef.vrect.height <<= 1;
-
-		vid.rowbytes >>= 1;
-		vid.aspect *= 2;
-	}
-	else
-	{
-		R_RenderView ();
-	}
-		
+	V_PolyBlend (); //johnfitz -- moved here from R_Renderview ();
 }
 
-//============================================================================
+/* 
+============================================================================== 
+ 
+	INIT
+ 
+============================================================================== 
+*/ 
 
 /*
 =============
@@ -907,9 +859,6 @@ void V_Init (void)
 	Cmd_AddCommand ("v_cshift", V_cshift_f);	
 	Cmd_AddCommand ("bf", V_BonusFlash_f);
 	Cmd_AddCommand ("centerview", V_StartPitchDrift);
-
-	Cvar_RegisterVariable (&lcd_x, NULL);
-	Cvar_RegisterVariable (&lcd_yaw, NULL);
 
 	Cvar_RegisterVariable (&v_centermove, NULL);
 	Cvar_RegisterVariable (&v_centerspeed, NULL);
@@ -923,8 +872,6 @@ void V_Init (void)
 
 	Cvar_RegisterVariable (&v_idlescale, NULL);
 	Cvar_RegisterVariable (&crosshair, NULL);
-	Cvar_RegisterVariable (&cl_crossx, NULL);
-	Cvar_RegisterVariable (&cl_crossy, NULL);
 	Cvar_RegisterVariable (&gl_cshiftpercent, NULL);
 
 	Cvar_RegisterVariable (&scr_ofsx, NULL);

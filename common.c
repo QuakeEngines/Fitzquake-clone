@@ -1577,7 +1577,6 @@ byte *COM_LoadFile (char *path, int usehunk)
 	Draw_BeginDisc ();
 	Sys_FileRead (h, buf, len);                     
 	COM_CloseFile (h);
-	Draw_EndDisc ();
 
 	return buf;
 }

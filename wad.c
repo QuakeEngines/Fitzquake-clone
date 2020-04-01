@@ -84,7 +84,6 @@ void W_LoadWadFile (char *filename)
 	wad_base = (unsigned char *)malloc (len);
 	Sys_FileRead (h, wad_base, len);                     
 	COM_CloseFile (h);
-	Draw_EndDisc ();
 	//johnfitz
 
 	header = (wadinfo_t *)wad_base;

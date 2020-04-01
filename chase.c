@@ -26,7 +26,6 @@ cvar_t	chase_back = {"chase_back", "100"};
 cvar_t	chase_up = {"chase_up", "16"};
 cvar_t	chase_right = {"chase_right", "0"};
 cvar_t	chase_active = {"chase_active", "0"};
-cvar_t	chase_alpha = {"chase_alpha", "1"}; //johnfitz -- translucent player model
 
 /*
 ==============
@@ -39,7 +38,6 @@ void Chase_Init (void)
 	Cvar_RegisterVariable (&chase_up, NULL);
 	Cvar_RegisterVariable (&chase_right, NULL);
 	Cvar_RegisterVariable (&chase_active, NULL);
-	Cvar_RegisterVariable (&chase_alpha, NULL); //johnfitz -- translucent player model
 }
 
 /*
@@ -78,6 +76,8 @@ void Chase_UpdateForClient (void)
 /*
 ==============
 Chase_UpdateForDrawing -- johnfitz -- orient camera based on client. called before drawing
+
+TODO: stay at least 8 units away from all walls in this leaf
 ==============
 */
 void Chase_UpdateForDrawing (void)

@@ -412,29 +412,29 @@ void Mod_LoadTextures (lump_t *l)
 		// the pixels immediately follow the structures
 		memcpy ( tx+1, mt+1, pixels);
 		
-
-		if (!Q_strncmp(mt->name,"sky",3))	
-			Sky_LoadTexture (tx);
-		else
+		if (!isDedicated) //johnfitz -- no texture uploading for dedicated server
 		{
-			texture_mode = GL_LINEAR_MIPMAP_NEAREST; //_LINEAR;
-			tx->gl_texturenum = GL_LoadTexture (mt->name, tx->width, tx->height, (byte *)(tx+1), true, false);
-			texture_mode = GL_LINEAR;
-
-			//johnfitz -- check for fullbright pixels in the texture
-			if ((tx->name[0] != '*') && (TextureContainsFullbrights ((byte *)(tx+1), pixels)))
+			if (!Q_strncmp(mt->name,"sky",3))	
+				Sky_LoadTexture (tx);
+			else
 			{
-				// convert any non fullbright pixel to fully transparent
-				ConvertToFullbrightMask ((byte *)(tx + 1), pixels);
+				tx->gltexture = TexMgr_LoadImage8 (mt->name, tx->width, tx->height, (byte *)(tx+1), TEXPREF_MIPMAP); //johnfitz -- TexMgr_LoadImage8
 
-				// get a new name for the fullbright mask to avoid cache mismatches
-				sprintf (fbr_mask_name, "fullbright_mask_%s", mt->name);
+				//johnfitz -- check for fullbright pixels in the texture
+				if ((tx->name[0] != '*') && (TextureContainsFullbrights ((byte *)(tx+1), pixels)))
+				{
+					// convert any non fullbright pixel to fully transparent
+					ConvertToFullbrightMask ((byte *)(tx + 1), pixels);
 
-				// load the fullbright pixels version of the texture
-				tx->fullbright = GL_LoadTexture (fbr_mask_name, tx->width, tx->height, (byte *)(tx + 1), true, true);
+					// get a new name for the fullbright mask to avoid cache mismatches
+					sprintf (fbr_mask_name, "%s_glow", mt->name);
+
+					// load the fullbright pixels version of the texture
+					tx->fullbright = TexMgr_LoadImage8 (fbr_mask_name, tx->width, tx->height, (byte *)(tx+1), TEXPREF_MIPMAP | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
+				}
+				else tx->fullbright = NULL; // because 0 is a potentially valid texture number
+				//johnfitz
 			}
-			else tx->fullbright = -1; // because 0 is a potentially valid texture number
-			//johnfitz
 		}
 	}
 
@@ -1539,33 +1539,29 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 			//johnfitz 
 
 			sprintf (name, "%s_%i", loadmodel->name, i);
-			pheader->gl_texturenum[i][0] =
-			pheader->gl_texturenum[i][1] =
-			pheader->gl_texturenum[i][2] =
-			pheader->gl_texturenum[i][3] =
-				GL_LoadPaddedTexture (name, pheader->skinwidth, 
-				pheader->skinheight, (byte *)(pskintype+1), false, false); //johnfitz -- use GL_LoadPaddedTexture
+			pheader->gltextures[i][0] =
+			pheader->gltextures[i][1] =
+			pheader->gltextures[i][2] =
+			pheader->gltextures[i][3] =
+				TexMgr_LoadImage8 (name, pheader->skinwidth, pheader->skinheight, 
+					(byte *)(pskintype+1), TEXPREF_PAD); //johnfitz -- TexMgr_LoadImage8
+
 			
 			//johnfitz -- check for fullbright pixels in the skin
 			if (TextureContainsFullbrights ((byte *)(pskintype+1), size))
 			{
-				// convert any non fullbright pixel to fully transparent
 				ConvertToFullbrightMask ((byte *)(pskintype+1), size);
-
-				// get a new name for the fullbright mask to avoid cache mismatches
-				sprintf (fbr_mask_name, "fullbright_mask_%s", loadmodel->name);
-
-				// load the fullbright pixels version of the texture
-				pheader->fullbrightmasks[i][0] =
-				pheader->fullbrightmasks[i][1] =
-				pheader->fullbrightmasks[i][2] =
-				pheader->fullbrightmasks[i][3] =
-					GL_LoadPaddedTexture (fbr_mask_name, pheader->skinwidth, 
-					pheader->skinheight, (byte *)(pskintype+1), false, true); //alpha is true
+				sprintf (fbr_mask_name, "%s_%i_glow", loadmodel->name, i);
+				pheader->fbtextures[i][0] =
+				pheader->fbtextures[i][1] =
+				pheader->fbtextures[i][2] =
+				pheader->fbtextures[i][3] =
+					TexMgr_LoadImage8 (fbr_mask_name, pheader->skinwidth, pheader->skinheight, 
+						(byte *)(pskintype+1), TEXPREF_PAD | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
 			}
 			else 
-				pheader->fullbrightmasks[i][0] = pheader->fullbrightmasks[i][1] =
-				pheader->fullbrightmasks[i][2] = pheader->fullbrightmasks[i][3] = -1;
+				pheader->fbtextures[i][0] = pheader->fbtextures[i][1] =
+				pheader->fbtextures[i][2] = pheader->fbtextures[i][3] = NULL;
 			//johnfitz
 			
 			pskintype = (daliasskintype_t *)((byte *)(pskintype+1) + size);
@@ -1589,34 +1585,29 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 					memcpy (texels, (byte *)(pskintype), size);
 				}
 				sprintf (name, "%s_%i_%i", loadmodel->name, i,j);
-				pheader->gl_texturenum[i][j&3] = 
-					GL_LoadPaddedTexture (name, pheader->skinwidth, 
-					pheader->skinheight, (byte *)(pskintype), false, false); //johnfitz -- GL_LoadPaddedTexture
+				pheader->gltextures[i][j&3] =
+					TexMgr_LoadImage8 (name, pheader->skinwidth, pheader->skinheight, 
+						(byte *)(pskintype), TEXPREF_PAD); //johnfitz -- TexMgr_LoadImage8
 
 				//johnfitz -- check for fullbright pixels in the skin
 				if (TextureContainsFullbrights ((byte *)(pskintype), size))
 				{
-					// convert any non fullbright pixel to fully transparent
 					ConvertToFullbrightMask ((byte *)(pskintype), size);
-
-					// get a new name for the fullbright mask to avoid cache mismatches
-					sprintf (fbr_mask_name, "fullbright_mask_%s", loadmodel->name);
-
-					// load the fullbright pixels version of the texture
-					pheader->gl_texturenum[i][j&3] =
-						GL_LoadPaddedTexture (fbr_mask_name, pheader->skinwidth, 
-						pheader->skinheight, (byte *)(pskintype), false, true);
+					sprintf (fbr_mask_name, "%s_%i_%i_glow", loadmodel->name, i,j);
+					pheader->fbtextures[i][j&3] =
+						TexMgr_LoadImage8 (fbr_mask_name, pheader->skinwidth, pheader->skinheight, 
+							(byte *)(pskintype), TEXPREF_PAD | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
 				}
 				else 
-					pheader->gl_texturenum[i][j&3] = -1;
+					pheader->fbtextures[i][j&3] = NULL;
 				//johnfitz
 
 				pskintype = (daliasskintype_t *)((byte *)(pskintype) + size);
 			}
 			k = j;
 			for (/* */; j < 4; j++)
-				pheader->gl_texturenum[i][j&3] = 
-				pheader->gl_texturenum[i][j - k]; 
+				pheader->gltextures[i][j&3] = 
+				pheader->gltextures[i][j - k]; 
 		}
 	}
 
@@ -1835,7 +1826,9 @@ void * Mod_LoadSpriteFrame (void * pin, mspriteframe_t **ppframe, int framenum)
 	pspriteframe->right = width + origin[0];
 
 	sprintf (name, "%s_%i", loadmodel->name, framenum);
-	pspriteframe->gl_texturenum = GL_LoadPaddedTexture (name, width, height, (byte *)(pinframe + 1), false, true); //johnfitz -- don't mipmap sprites
+	pspriteframe->gltexture = 
+		TexMgr_LoadImage8 (name, width, height, (byte *)(pinframe + 1),
+			TEXPREF_PAD | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
 
 	return (void *)((byte *)pinframe + sizeof (dspriteframe_t) + size);
 }

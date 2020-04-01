@@ -34,33 +34,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 void GL_BeginRendering (int *x, int *y, int *width, int *height);
 void GL_EndRendering (void);
 
-
-#ifdef _WIN32
-// Function prototypes for the Texture Object Extension routines
-typedef GLboolean (APIENTRY *ARETEXRESFUNCPTR)(GLsizei, const GLuint *,
-                    const GLboolean *);
-typedef void (APIENTRY *BINDTEXFUNCPTR)(GLenum, GLuint);
-typedef void (APIENTRY *DELTEXFUNCPTR)(GLsizei, const GLuint *);
-typedef void (APIENTRY *GENTEXFUNCPTR)(GLsizei, GLuint *);
-typedef GLboolean (APIENTRY *ISTEXFUNCPTR)(GLuint);
-typedef void (APIENTRY *PRIORTEXFUNCPTR)(GLsizei, const GLuint *,
-                    const GLclampf *);
-typedef void (APIENTRY *TEXSUBIMAGEPTR)(int, int, int, int, int, int, int, int, void *);
-
-extern	BINDTEXFUNCPTR bindTexFunc;
-extern	DELTEXFUNCPTR delTexFunc;
-extern	TEXSUBIMAGEPTR TexSubImage2DFunc;
-#endif
-
-extern	int texture_extension_number;
-extern	int		texture_mode;
+//johnfitz -- removed texture object stuff since they are standard in gl 1.1
 
 extern	float	gldepthmin, gldepthmax;
-
-void GL_Upload32 (unsigned *data, int width, int height,  qboolean mipmap, qboolean alpha);
-void GL_Upload8 (byte *data, int width, int height,  qboolean mipmap, qboolean alpha);
-int GL_LoadTexture (char *identifier, int width, int height, byte *data, qboolean mipmap, qboolean alpha);
-int GL_FindTexture (char *identifier);
 
 typedef struct
 {
@@ -150,7 +126,6 @@ typedef struct particle_s
 
 //====================================================
 
-
 extern	entity_t	r_worldentity;
 extern	qboolean	r_cache_thrash;		// compatability
 extern	vec3_t		modelorg, r_entorigin;
@@ -158,11 +133,6 @@ extern	entity_t	*currententity;
 extern	int			r_visframecount;	// ??? what difs?
 extern	int			r_framecount;
 extern	mplane_t	frustum[4];
-
-
-//johnfitz -- rendering statistics
-extern int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys, rs_dynamiclightmaps;
-
 
 //
 // view origin
@@ -181,13 +151,6 @@ extern	texture_t	*r_notexture_mip;
 extern	int		d_lightstylevalue[256];	// 8.8 fraction of base light value
 
 extern	qboolean	envmap;
-extern	int	currenttexture;
-extern	int	cnttextures[2];
-extern	int	particletexture;
-
-extern	int	screentexture;		// johnfitz
-
-extern	int	playertextures;
 
 extern	cvar_t	r_norefresh;
 extern	cvar_t	r_drawentities;
@@ -210,10 +173,8 @@ extern	cvar_t	gl_smoothmodels;
 extern	cvar_t	gl_affinemodels;
 extern	cvar_t	gl_polyblend;
 extern	cvar_t	gl_keeptjunctions;
-extern	cvar_t	gl_reporttjunctions;
 extern	cvar_t	gl_flashblend;
 extern	cvar_t	gl_nocolors;
-extern	cvar_t	gl_doubleeyes;
 
 extern	int		gl_lightmap_format;
 extern	int		gl_solid_format;
@@ -230,7 +191,6 @@ extern	const char *gl_version;
 extern	const char *gl_extensions;
 
 void R_TranslatePlayerSkin (int playernum);
-void GL_Bind (int texnum);
 
 // Multitexture
 #define    TEXTURE0_SGIS				0x835E
@@ -240,15 +200,15 @@ void GL_Bind (int texnum);
 #define APIENTRY /* */
 #endif
 
-typedef void (APIENTRY *lpMTexFUNC) (GLenum, GLfloat, GLfloat);
-typedef void (APIENTRY *lpSelTexFUNC) (GLenum);
-extern lpMTexFUNC qglMTexCoord2fSGIS;
-extern lpSelTexFUNC qglSelectTextureSGIS;
-
-extern qboolean gl_mtexable;
-
-void GL_DisableMultitexture(void);
-void GL_EnableMultitexture(void);
+//johnfitz -- modified multitexture support
+typedef void (APIENTRY *SELECTTEXFUNC) (GLenum);
+typedef void (APIENTRY *MTEXCOORDFUNC) (GLenum, GLfloat, GLfloat);
+extern MTEXCOORDFUNC GL_MTexCoord2fFunc;
+extern SELECTTEXFUNC GL_SelectTextureFunc;
+#define	GL_TEXTURE0_ARB	0x84C0 
+#define	GL_TEXTURE1_ARB	0x84C1
+extern GLenum TEXTURE0, TEXTURE1;
+//johnfitz
 
 //johnfitz -- polygon offset
 #define OFFSET_BMODEL 1
@@ -256,4 +216,20 @@ void GL_EnableMultitexture(void);
 #define OFFSET_DECAL -1
 #define OFFSET_FOG -2
 void GL_PolygonOffset (int);
+//johnfitz
+
+//johnfitz -- GL_EXT_texture_env_combine
+//the values for GL_ARB... are identical
+#define GL_COMBINE_EXT			0x8570
+#define GL_COMBINE_RGB_EXT		0x8571
+#define GL_RGB_SCALE_EXT		0x8573
+#define GL_PRIMARY_COLOR_EXT	0x8577
+#define GL_SOURCE0_RGB_EXT		0x8580
+#define GL_SOURCE1_RGB_EXT		0x8581
+extern qboolean gl_texture_env_combine;
+//johnfitz
+
+//johnfitz -- rendering statistics
+extern int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
+extern int rs_dynamiclightmaps, rs_brushpasses, rs_aliaspasses, rs_skypasses;
 //johnfitz

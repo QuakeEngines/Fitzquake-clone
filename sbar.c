@@ -22,7 +22,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-
 int			sb_updates;		// if >= vid.numpages, no update needed
 
 #define STAT_MINUS		10	// num frame for '-' stats digit
@@ -265,43 +264,32 @@ void Sbar_Init (void)
 
 /*
 =============
-Sbar_DrawPic
+Sbar_DrawPic -- johnfitz -- rewritten now that GL_SetCanvas is doing the work
 =============
 */
 void Sbar_DrawPic (int x, int y, qpic_t *pic)
 {
-	if (cl.gametype == GAME_DEATHMATCH)
-		Draw_Pic (x /* + ((vid.width - 320)>>1)*/, y + (vid.height-SBAR_HEIGHT), pic);
-	else
-		Draw_Pic (x + ((vid.width - 320)>>1), y + (vid.height-SBAR_HEIGHT), pic);
+	Draw_Pic (x, y + 24, pic);
 }
 
 /*
 ================
-Sbar_DrawCharacter
-
-Draws one solid graphics character
+Sbar_DrawCharacter -- johnfitz -- rewritten now that GL_SetCanvas is doing the work
 ================
 */
 void Sbar_DrawCharacter (int x, int y, int num)
 {
-	if (cl.gametype == GAME_DEATHMATCH)
-		Draw_Character ( x /*+ ((vid.width - 320)>>1) */ + 4 , y + vid.height-SBAR_HEIGHT, num);
-	else
-		Draw_Character ( x + ((vid.width - 320)>>1) + 4 , y + vid.height-SBAR_HEIGHT, num);
+	Draw_Character (x, y + 24, num);
 }
 
 /*
 ================
-Sbar_DrawString
+Sbar_DrawString -- johnfitz -- rewritten now that GL_SetCanvas is doing the work
 ================
 */
 void Sbar_DrawString (int x, int y, char *str)
 {
-	if (cl.gametype == GAME_DEATHMATCH)
-		Draw_String (x /*+ ((vid.width - 320)>>1)*/, y+ vid.height-SBAR_HEIGHT, str);
-	else
-		Draw_String (x + ((vid.width - 320)>>1), y+ vid.height-SBAR_HEIGHT, str);
+	Draw_String (x, y + 24, str);
 }
 
 /*
@@ -313,20 +301,24 @@ scroll the string inside a glscissor region
 */
 void Sbar_DrawScrollString (int x, int y, int width, char* str)
 {	
-	int len, ofs;
+	float scale;
+	int len, ofs, left;
 
-	y += vid.height-SBAR_HEIGHT;
-	if (cl.gametype != GAME_DEATHMATCH) x += ((vid.width - 320)>>1);
+	scale = CLAMP (1.0, scr_sbarscale.value, (float)glwidth / 320.0);
+	left = x * scale;
+	if (cl.gametype != GAME_DEATHMATCH)
+		left += (((float)glwidth - 320.0 * scale) / 2);
+
+	glEnable (GL_SCISSOR_TEST);
+	glScissor (left, 0, width * scale, glheight);
 
 	len = strlen(str)*8 + 40;
 	ofs = ((int)(realtime*30))%len;
-
-	glEnable (GL_SCISSOR_TEST);
-	glScissor (x, vid.height - y - 8, 160, 8);
-
-	Draw_String (x - ofs, y, str);
-	Draw_String (x - ofs + len - 32, y, "///");
-	Draw_String (x - ofs + len, y, str);
+	Sbar_DrawString (x - ofs, y, str);
+	Sbar_DrawCharacter (x - ofs + len - 32, y, '/');
+	Sbar_DrawCharacter (x - ofs + len - 24, y, '/');
+	Sbar_DrawCharacter (x - ofs + len - 16, y, '/');
+	Sbar_DrawString (x - ofs + len, y, str);
 
 	glDisable (GL_SCISSOR_TEST);
 }
@@ -516,51 +508,6 @@ void Sbar_DrawScoreboard (void)
 	Sbar_SoloScoreboard ();
 	if (cl.gametype == GAME_DEATHMATCH)
 		Sbar_DeathmatchOverlay ();
-#if 0
-	int		i, j, c;
-	int		x, y;
-	int		l;
-	int		top, bottom;
-	scoreboard_t	*s;
-
-	if (cl.gametype != GAME_DEATHMATCH)
-	{
-		Sbar_SoloScoreboard ();
-		return;
-	}
-
-	Sbar_UpdateScoreboard ();
-
-	l = scoreboardlines <= 6 ? scoreboardlines : 6;
-
-	for (i=0 ; i<l ; i++)
-	{
-		x = 20*(i&1);
-		y = i/2 * 8;
-
-		s = &cl.scores[fragsort[i]];
-		if (!s->name[0])
-			continue;
-
-	// draw background
-		top = s->colors & 0xf0;
-		bottom = (s->colors & 15)<<4;
-		top = Sbar_ColorForMap (top);
-		bottom = Sbar_ColorForMap (bottom);
-
-		Draw_Fill ( x*8+10 + ((vid.width - 320)>>1), y + vid.height - SBAR_HEIGHT, 28, 4, top);
-		Draw_Fill ( x*8+10 + ((vid.width - 320)>>1), y+4 + vid.height - SBAR_HEIGHT, 28, 4, bottom);
-
-	// draw text
-		for (j=0 ; j<20 ; j++)
-		{
-			c = scoreboardtext[i][j];
-			if (c == 0 || c == ' ')
-				continue;
-			Sbar_DrawCharacter ( (x+j)*8, y, c);
-		}
-	}
-#endif
 }
 
 //=============================================================================
@@ -690,11 +637,11 @@ void Sbar_DrawInventory (void)
 	{
 		sprintf (num, "%3i",cl.stats[STAT_SHELLS+i] );
 		if (num[0] != ' ')
-			Sbar_DrawCharacter ( (6*i+1)*8 - 2, -24, 18 + num[0] - '0');
+			Sbar_DrawCharacter ( (6*i+1)*8 + 2, -24, 18 + num[0] - '0');
 		if (num[1] != ' ')
-			Sbar_DrawCharacter ( (6*i+2)*8 - 2, -24, 18 + num[1] - '0');
+			Sbar_DrawCharacter ( (6*i+2)*8 + 2, -24, 18 + num[1] - '0');
 		if (num[2] != ' ')
-			Sbar_DrawCharacter ( (6*i+3)*8 - 2, -24, 18 + num[2] - '0');
+			Sbar_DrawCharacter ( (6*i+3)*8 + 2, -24, 18 + num[2] - '0');
 	}
 
 	flashon = 0;
@@ -787,60 +734,48 @@ void Sbar_DrawInventory (void)
 
 /*
 ===============
-Sbar_DrawFrags
+Sbar_DrawFrags -- johnfitz -- heavy revision
 ===============
 */
 void Sbar_DrawFrags (void)
 {
-	int				i, k, l;
-	int				top, bottom;
-	int				x, y, f;
-	int				xofs;
+	int				numscores, i, x, color;
 	char			num[12];
 	scoreboard_t	*s;
 
 	Sbar_SortFrags ();
 
 // draw the text
-	l = scoreboardlines <= 4 ? scoreboardlines : 4;
+	numscores = min (scoreboardlines, 4);
 
-	x = 23;
-	if (cl.gametype == GAME_DEATHMATCH)
-		xofs = 0;
-	else
-		xofs = (vid.width - 320)>>1;
-	y = vid.height - SBAR_HEIGHT - 23;
-
-	for (i=0 ; i<l ; i++)
+	for (i=0, x=184; i<numscores; i++, x+=32)
 	{
-		k = fragsort[i];
-		s = &cl.scores[k];
+		s = &cl.scores[fragsort[i]];
 		if (!s->name[0])
 			continue;
 
-	// draw background
-		top = s->colors & 0xf0;
-		bottom = (s->colors & 15)<<4;
-		top = Sbar_ColorForMap (top);
-		bottom = Sbar_ColorForMap (bottom);
+	// top color
+		color = s->colors & 0xf0;
+		color = Sbar_ColorForMap (color);
+		Draw_Fill (x + 10, 1, 28, 4, color);
 
-		Draw_Fill (xofs + x*8 + 10, y, 28, 4, top);
-		Draw_Fill (xofs + x*8 + 10, y+4, 28, 3, bottom);
+	// bottom color
+		color = (s->colors & 15)<<4;
+		color = Sbar_ColorForMap (color);
+		Draw_Fill (x + 10, 5, 28, 3, color);
 
-	// draw number
-		f = s->frags;
-		sprintf (num, "%3i",f);
+	// number
+		sprintf (num, "%3i", s->frags);
+		Sbar_DrawCharacter (x + 12, -24, num[0]);
+		Sbar_DrawCharacter (x + 20, -24, num[1]);
+		Sbar_DrawCharacter (x + 28, -24, num[2]);
 
-		Sbar_DrawCharacter ( (x+1)*8 , -24, num[0]);
-		Sbar_DrawCharacter ( (x+2)*8 , -24, num[1]);
-		Sbar_DrawCharacter ( (x+3)*8 , -24, num[2]);
-
-		if (k == cl.viewentity - 1)
+	// brackets
+		if (fragsort[i] == cl.viewentity - 1)
 		{
-			Sbar_DrawCharacter (x*8+2, -24, 16);
-			Sbar_DrawCharacter ( (x+4)*8-4, -24, 17);
+			Sbar_DrawCharacter (x + 6, -24, 16);
+			Sbar_DrawCharacter (x + 32, -24, 17);
 		}
-		x+=4;
 	}
 }
 
@@ -858,10 +793,7 @@ void Sbar_DrawFace (void)
 
 // PGM 01/19/97 - team color drawing
 // PGM 03/02/97 - fixed so color swatch only appears in CTF modes
-	if (rogue &&
-        (cl.maxclients != 1) &&
-        (teamplay.value>3) &&
-        (teamplay.value<7))
+	if (rogue && (cl.maxclients != 1) && (teamplay.value>3) && (teamplay.value<7))
 	{
 		int				top, bottom;
 		int				xofs;
@@ -881,8 +813,8 @@ void Sbar_DrawFace (void)
 			xofs = ((vid.width - 320)>>1) + 113;
 
 		Sbar_DrawPic (112, 0, rsb_teambord);
-		Draw_Fill (xofs, vid.height-SBAR_HEIGHT+3, 22, 9, top);
-		Draw_Fill (xofs, vid.height-SBAR_HEIGHT+12, 22, 9, bottom);
+		Draw_Fill (xofs, /*vid.height-*/24+3, 22, 9, top); //johnfitz -- sbar coords are now relative
+		Draw_Fill (xofs, /*vid.height-*/24+12, 22, 9, bottom); //johnfitz -- sbar coords are now relative
 
 		// draw number
 		f = s->frags;
@@ -891,17 +823,17 @@ void Sbar_DrawFace (void)
 		if (top==8)
 		{
 			if (num[0] != ' ')
-				Sbar_DrawCharacter(109, 3, 18 + num[0] - '0');
+				Sbar_DrawCharacter(113, 3, 18 + num[0] - '0');
 			if (num[1] != ' ')
-				Sbar_DrawCharacter(116, 3, 18 + num[1] - '0');
+				Sbar_DrawCharacter(120, 3, 18 + num[1] - '0');
 			if (num[2] != ' ')
-				Sbar_DrawCharacter(123, 3, 18 + num[2] - '0');
+				Sbar_DrawCharacter(127, 3, 18 + num[2] - '0');
 		}
 		else
 		{
-			Sbar_DrawCharacter ( 109, 3, num[0]);
-			Sbar_DrawCharacter ( 116, 3, num[1]);
-			Sbar_DrawCharacter ( 123, 3, num[2]);
+			Sbar_DrawCharacter ( 113, 3, num[0]);
+			Sbar_DrawCharacter ( 120, 3, num[1]);
+			Sbar_DrawCharacter ( 127, 3, num[2]);
 		}
 		
 		return;
@@ -955,17 +887,24 @@ void Sbar_Draw (void)
 	if (scr_con_current == vid.height)
 		return;		// console is full screen
 
-	if (sb_updates >= vid.numpages && !gl_clear.value) //johnfitz
+	if (sb_updates >= vid.numpages && !gl_clear.value) //johnfitz -- gl_clear
 		return;
 
-	scr_copyeverything = 1;
+	if (cl.intermission)
+		return; //johnfitz -- never draw sbar during intermission
 
 	sb_updates++;
 
-	if (sb_lines && vid.width > 320) 
-		Draw_TileClear (0, vid.height - sb_lines, vid.width, sb_lines);
+	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
 
-	if (sb_lines > 24)
+	//johnfitz -- glwidth instead of vid.width
+	if (sb_lines && glwidth > 320)
+		Draw_TileClear (0, glheight - sb_lines, glwidth, sb_lines);
+	//johnfitz
+
+	GL_SetCanvas (CANVAS_SBAR); //johnfitz
+
+	if (scr_viewsize.value < 110) //johnfitz -- check viewsize instead of sb_lines
 	{
 		Sbar_DrawInventory ();
 		if (cl.maxclients != 1)
@@ -978,7 +917,7 @@ void Sbar_Draw (void)
 		Sbar_DrawScoreboard ();
 		sb_updates = 0;
 	}
-	else if (sb_lines)
+	else if (scr_viewsize.value < 120) //johnfitz -- check viewsize instead of sb_lines
 	{
 		Sbar_DrawPic (0, 0, sb_sbar);
 
@@ -1064,10 +1003,9 @@ void Sbar_Draw (void)
 					  cl.stats[STAT_AMMO] <= 10);
 	}
 
-	if (vid.width > 320) {
-		if (cl.gametype == GAME_DEATHMATCH)
+	//johnfitz -- removed the vid.width > 320 check here
+	if (cl.gametype == GAME_DEATHMATCH)
 			Sbar_MiniDeathmatchOverlay ();
-	}
 }
 
 //=============================================================================
@@ -1098,7 +1036,7 @@ void Sbar_IntermissionNumber (int x, int y, int num, int digits, int color)
 		else
 			frame = *ptr -'0';
 
-		Draw_OverlayPic (x,y,sb_nums[color][frame]); //johnfitz -- stretched menus
+		Draw_Pic (x,y,sb_nums[color][frame]); //johnfitz -- stretched menus
 		x += 24;
 		ptr++;
 	}
@@ -1119,8 +1057,7 @@ void Sbar_DeathmatchOverlay (void)
 	char			num[12];
 	scoreboard_t	*s;
 
-	scr_copyeverything = 1;
-	scr_fullupdate = 0;
+	GL_SetCanvas (CANVAS_MENU); //johnfitz
 
 	pic = Draw_CachePic ("gfx/ranking.lmp");
 	M_DrawPic ((320-pic->width)/2, 8, pic);
@@ -1131,7 +1068,7 @@ void Sbar_DeathmatchOverlay (void)
 // draw the text
 	l = scoreboardlines;
 
-	x = 80/* + ((vid.width - 320)>>1)*/; //johnfitz -- stretched overlays
+	x = 80; //johnfitz -- simplified becuase some positioning is handled elsewhere
 	y = 40;
 	for (i=0 ; i<l ; i++)
 	{
@@ -1146,19 +1083,19 @@ void Sbar_DeathmatchOverlay (void)
 		top = Sbar_ColorForMap (top);
 		bottom = Sbar_ColorForMap (bottom);
 
-		Draw_OverlayFill ( x, y, 40, 4, top); //johnfitz -- stretched overlays
-		Draw_OverlayFill ( x, y+4, 40, 4, bottom); //johnfitz -- stretched overlays
+		Draw_Fill ( x, y, 40, 4, top); //johnfitz -- stretched overlays
+		Draw_Fill ( x, y+4, 40, 4, bottom); //johnfitz -- stretched overlays
 
 	// draw number
 		f = s->frags;
 		sprintf (num, "%3i",f);
 
-		Draw_OverlayCharacter ( x+8 , y, num[0]); //johnfitz -- stretched overlays
-		Draw_OverlayCharacter ( x+16 , y, num[1]); //johnfitz -- stretched overlays
-		Draw_OverlayCharacter ( x+24 , y, num[2]); //johnfitz -- stretched overlays
+		Draw_Character ( x+8 , y, num[0]); //johnfitz -- stretched overlays
+		Draw_Character ( x+16 , y, num[1]); //johnfitz -- stretched overlays
+		Draw_Character ( x+24 , y, num[2]); //johnfitz -- stretched overlays
 
 		if (k == cl.viewentity - 1)
-			Draw_OverlayCharacter ( x - 8, y, 12); //johnfitz -- stretched overlays
+			Draw_Character ( x - 8, y, 12); //johnfitz -- stretched overlays
 
 #if 0
 {
@@ -1183,114 +1120,89 @@ void Sbar_DeathmatchOverlay (void)
 
 		y += 10;
 	}
+	
+	GL_SetCanvas (CANVAS_SBAR); //johnfitz
 }
 
 /*
 ==================
-Sbar_DeathmatchOverlay
-
+Sbar_MiniDeathmatchOverlay
 ==================
 */
 void Sbar_MiniDeathmatchOverlay (void)
 {
-	qpic_t			*pic;
-	int				i, k, l;
-	int				top, bottom;
-	int				x, y, f;
+	int				i, k, l, top, bottom, x, y, f, numlines;
 	char			num[12];
+	float			scale; //johnfitz
+	qpic_t			*pic;
 	scoreboard_t	*s;
-	int				numlines;
 
-	if (vid.width < 512 || !sb_lines)
+	scale = CLAMP (1.0, scr_sbarscale.value, (float)glwidth / 320.0); //johnfitz
+
+	//MAX_SCOREBOARDNAME = 32, so total width for this overlay plus sbar is 632, but we can cut off some i guess
+	if (glwidth/scale < 512 || !sb_lines) //johnfitz -- test should consider scr_sbarscale
 		return;
-
-	scr_copyeverything = 1;
-	scr_fullupdate = 0;
 
 // scores
 	Sbar_SortFrags ();
 
 // draw the text
 	l = scoreboardlines;
-	y = vid.height - sb_lines;
-	numlines = sb_lines/8;
-	if (numlines < 3)
-		return;
+	numlines = (scr_viewsize.value >= 110) ? 3 : 6; //johnfitz
 
 	//find us
 	for (i = 0; i < scoreboardlines; i++)
 		if (fragsort[i] == cl.viewentity - 1)
 			break;
-
     if (i == scoreboardlines) // we're not there
             i = 0;
     else // figure out start
             i = i - numlines/2;
-
     if (i > scoreboardlines - numlines)
             i = scoreboardlines - numlines;
     if (i < 0)
             i = 0;
 
 	x = 324;
-	for (/* */; i < scoreboardlines && y < vid.height - 8 ; i++)
+	y = (scr_viewsize.value >= 110) ? 24 : 0; //johnfitz -- start at the right place
+	for ( ; i < scoreboardlines && y <= 48; i++, y+=8) //johnfitz -- change y init, test, inc
 	{
 		k = fragsort[i];
 		s = &cl.scores[k];
 		if (!s->name[0])
 			continue;
 
-	// draw background
+	// colors
 		top = s->colors & 0xf0;
 		bottom = (s->colors & 15)<<4;
 		top = Sbar_ColorForMap (top);
 		bottom = Sbar_ColorForMap (bottom);
 
-		Draw_Fill ( x, y+1, 40, 3, top);
-		Draw_Fill ( x, y+4, 40, 4, bottom);
+		Draw_Fill ( x, y+1, 40, 4, top);
+		Draw_Fill ( x, y+5, 40, 3, bottom);
 
-	// draw number
+	// number
 		f = s->frags;
 		sprintf (num, "%3i",f);
-
 		Draw_Character ( x+8 , y, num[0]);
 		Draw_Character ( x+16 , y, num[1]);
 		Draw_Character ( x+24 , y, num[2]);
 
-		if (k == cl.viewentity - 1) {
+	// brackets
+		if (k == cl.viewentity - 1)
+		{
 			Draw_Character ( x, y, 16);
-			Draw_Character ( x + 32, y, 17);
+			Draw_Character ( x+32, y, 17);
 		}
 
-#if 0
-{
-	int				total;
-	int				n, minutes, tens, units;
-
-	// draw time
-		total = cl.completed_time - s->entertime;
-		minutes = (int)total/60;
-		n = total - minutes*60;
-		tens = n/10;
-		units = n%10;
-
-		sprintf (num, "%3i:%i%i", minutes, tens, units);
-
-		Draw_String ( x+48 , y, num);
-}
-#endif
-
-	// draw name
+	// name
 		Draw_String (x+48, y, s->name);
-
-		y += 8;
 	}
 }
 
 /*
 ==================
 Sbar_IntermissionOverlay
-
 ==================
 */
 void Sbar_IntermissionOverlay (void)
@@ -1299,52 +1211,48 @@ void Sbar_IntermissionOverlay (void)
 	int		dig;
 	int		num;
 
-	scr_copyeverything = 1;
-	scr_fullupdate = 0;
-
 	if (cl.gametype == GAME_DEATHMATCH)
 	{
 		Sbar_DeathmatchOverlay ();
 		return;
 	}
+	
+	GL_SetCanvas (CANVAS_MENU); //johnfitz
 
 	pic = Draw_CachePic ("gfx/complete.lmp");
-	Draw_OverlayPic (64, 24, pic); //johnfitz -- stretched menus
+	Draw_Pic (64, 24, pic);
 
 	pic = Draw_CachePic ("gfx/inter.lmp");
-	Draw_OverlayPic (0, 56, pic); //johnfitz -- stretched menus
+	Draw_Pic (0, 56, pic);
 
-// time
 	dig = cl.completed_time/60;
-	Sbar_IntermissionNumber (160, 64, dig, 3, 0);
+	Sbar_IntermissionNumber (152, 64, dig, 3, 0); //johnfitz -- was 160
 	num = cl.completed_time - dig*60;
-	Draw_OverlayPic (234,64,sb_colon); //johnfitz -- stretched menus
-	Draw_OverlayPic (246,64,sb_nums[0][num/10]); //johnfitz -- stretched menus
-	Draw_OverlayPic (266,64,sb_nums[0][num%10]); //johnfitz -- stretched menus
+	Draw_Pic (224,64,sb_colon); //johnfitz -- was 234
+	Draw_Pic (240,64,sb_nums[0][num/10]); //johnfitz -- was 246
+	Draw_Pic (264,64,sb_nums[0][num%10]); //johnfitz -- was 266
 
-	Sbar_IntermissionNumber (160, 104, cl.stats[STAT_SECRETS], 3, 0);
-	Draw_OverlayPic (232,104,sb_slash); //johnfitz -- stretched menus
-	Sbar_IntermissionNumber (240, 104, cl.stats[STAT_TOTALSECRETS], 3, 0);
+	Sbar_IntermissionNumber (152, 104, cl.stats[STAT_SECRETS], 3, 0); //johnfitz -- was 160
+	Draw_Pic (224,104,sb_slash); //johnfitz -- was 232
+	Sbar_IntermissionNumber (240, 104, cl.stats[STAT_TOTALSECRETS], 3, 0); //johnfitz -- was 248
 
-	Sbar_IntermissionNumber (160, 144, cl.stats[STAT_MONSTERS], 3, 0);
-	Draw_OverlayPic (232,144,sb_slash); //johnfitz -- stretched menus
-	Sbar_IntermissionNumber (240, 144, cl.stats[STAT_TOTALMONSTERS], 3, 0);
-
+	Sbar_IntermissionNumber (152, 144, cl.stats[STAT_MONSTERS], 3, 0); //johnfitz -- was 160
+	Draw_Pic (224,144,sb_slash); //johnfitz -- was 232
+	Sbar_IntermissionNumber (240, 144, cl.stats[STAT_TOTALMONSTERS], 3, 0); //johnfitz -- was 248
 }
 
 
 /*
 ==================
 Sbar_FinaleOverlay
-
 ==================
 */
 void Sbar_FinaleOverlay (void)
 {
 	qpic_t	*pic;
 
-	scr_copyeverything = 1;
+	GL_SetCanvas (CANVAS_MENU); //johnfitz
 
 	pic = Draw_CachePic ("gfx/finale.lmp");
-	Draw_OverlayPic ( (320 - pic->width)/2, 16, pic); //johnfitz -- stretched menus
+	Draw_Pic ( (320 - pic->width)/2, 16, pic); //johnfitz -- stretched menus
 }

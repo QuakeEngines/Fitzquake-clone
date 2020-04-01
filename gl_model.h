@@ -76,16 +76,16 @@ typedef struct mplane_s
 
 typedef struct texture_s
 {
-	char		name[16];
-	unsigned	width, height;
-	int			gl_texturenum;
+	char				name[16];
+	unsigned			width, height;
+	struct gltexture_s	*gltexture; //johnfitz -- pointer to gltexture
+	struct gltexture_s	*fullbright; //johnfitz -- fullbrights
 	struct msurface_s	*texturechain;	// for gl_texsort drawing
-	int			anim_total;				// total tenths in sequence ( 0 = no)
-	int			anim_min, anim_max;		// time for this frame min <=time< max
-	struct texture_s *anim_next;		// in the animation sequence
-	struct texture_s *alternate_anims;	// bmodels in frmae 1 use these
-	unsigned	offsets[MIPLEVELS];		// four mip maps stored
-	int fullbright; //johnfitz -- fullbrights
+	int					anim_total;				// total tenths in sequence ( 0 = no)
+	int					anim_min, anim_max;		// time for this frame min <=time< max
+	struct texture_s	*anim_next;		// in the animation sequence
+	struct texture_s	*alternate_anims;	// bmodels in frmae 1 use these
+	unsigned			offsets[MIPLEVELS];		// four mip maps stored
 } texture_t;
 
 
@@ -218,10 +218,10 @@ SPRITE MODELS
 // FIXME: shorten these?
 typedef struct mspriteframe_s
 {
-	int		width;
-	int		height;
-	float	up, down, left, right;
-	int		gl_texturenum;
+	int					width;
+	int					height;
+	float				up, down, left, right;
+	struct gltexture_s	*gltexture;
 } mspriteframe_t;
 
 typedef struct
@@ -312,8 +312,8 @@ typedef struct {
 	int					poseverts;
 	int					posedata;	// numposes*poseverts trivert_t
 	int					commands;	// gl command list with embedded s/t
-	int					gl_texturenum[MAX_SKINS][4];
-	int					fullbrightmasks[MAX_SKINS][4]; //johnfitz
+	struct gltexture_s	*gltextures[MAX_SKINS][4]; //johnfitz
+	struct gltexture_s	*fbtextures[MAX_SKINS][4]; //johnfitz
 	int					texels[MAX_SKINS];	// only for player skins
 	maliasframedesc_t	frames[1];	// variable sized
 } aliashdr_t;

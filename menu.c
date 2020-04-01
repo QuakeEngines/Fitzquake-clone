@@ -132,7 +132,7 @@ Draws one solid graphics character
 */
 void M_DrawCharacter (int cx, int line, int num)
 {
-	Draw_OverlayCharacter ( cx /*+ ((vid.width - 320)>>1)*/, line, num);
+	Draw_Character (cx, line, num);
 }
 
 void M_Print (int cx, int cy, char *str)
@@ -157,12 +157,12 @@ void M_PrintWhite (int cx, int cy, char *str)
 
 void M_DrawTransPic (int x, int y, qpic_t *pic)
 {
-	Draw_OverlayPic (x /*+ ((vid.width - 320)>>1)*/, y, pic); //johnfitz -- stretched menus
+	Draw_Pic (x, y, pic); //johnfitz -- simplified becuase centering is handled elsewhere
 }
 
 void M_DrawPic (int x, int y, qpic_t *pic)
 {
-	Draw_OverlayPic (x /*+ ((vid.width - 320)>>1)*/, y, pic); //johnfitz -- stretched menus
+	Draw_Pic (x, y, pic); //johnfitz -- simplified becuase centering is handled elsewhere
 }
 
 byte identityTable[256];
@@ -195,7 +195,7 @@ void M_BuildTranslationTable(int top, int bottom)
 
 void M_DrawTransPicTranslate (int x, int y, qpic_t *pic)
 {
-	Draw_TransPicTranslate (x /* + ((vid.width - 320)>>1)*/, y, pic, translationTable); //johnfitz -- stretched menus
+	Draw_TransPicTranslate (x, y, pic, translationTable); //johnfitz -- simplified becuase centering is handled elsewhere
 }
 
 
@@ -441,6 +441,8 @@ void M_SinglePlayer_Key (int key)
 			if (sv.active)
 				Cbuf_AddText ("disconnect\n");
 			Cbuf_AddText ("maxplayers 1\n");
+			Cbuf_AddText ("deathmatch 0\n"); //johnfitz
+			Cbuf_AddText ("coop 0\n"); //johnfitz
 			Cbuf_AddText ("map start\n");
 			break;
 
@@ -2976,24 +2978,22 @@ void M_Draw (void)
 
 	if (!m_recursiveDraw)
 	{
-		scr_copyeverything = 1;
-
 		if (scr_con_current)
 		{
-			Draw_ConsoleBackground (vid.height);
+			Draw_ConsoleBackground ();
 			VID_UnlockBuffer ();
 			S_ExtraUpdate ();
 			VID_LockBuffer ();
 		}
-		
-		Draw_FadeScreen (); //johnfitz -- fade even if console fills screen
 
-		scr_fullupdate = 0;
+		Draw_FadeScreen (); //johnfitz -- fade even if console fills screen
 	}
 	else
 	{
 		m_recursiveDraw = false;
 	}
+
+	GL_SetCanvas (CANVAS_MENU); //johnfitz
 
 	switch (m_state)
 	{

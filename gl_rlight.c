@@ -162,49 +162,71 @@ DYNAMIC LIGHTS
 
 /*
 =============
-R_MarkLights
+R_MarkLights -- johnfitz -- rewritten to use LordHavoc's lighting speedup 
 =============
 */
 void R_MarkLights (dlight_t *light, int bit, mnode_t *node)
 {
 	mplane_t	*splitplane;
-	float		dist;
 	msurface_t	*surf;
-	int			i;
-	
+	vec3_t		impact;
+	float		dist, l, maxdist;
+	int			i, j, s, t;
+
+start:
+
 	if (node->contents < 0)
 		return;
 
 	splitplane = node->plane;
-	dist = DotProduct (light->origin, splitplane->normal) - splitplane->dist;
+	if (splitplane->type < 3)
+		dist = light->origin[splitplane->type] - splitplane->dist;
+	else
+		dist = DotProduct (light->origin, splitplane->normal) - splitplane->dist;
 	
 	if (dist > light->radius)
 	{
-		R_MarkLights (light, bit, node->children[0]);
-		return;
+		node = node->children[0];
+		goto start;
 	}
 	if (dist < -light->radius)
 	{
-		R_MarkLights (light, bit, node->children[1]);
-		return;
+		node = node->children[1];
+		goto start;
 	}
-		
+
+	maxdist = light->radius*light->radius;
 // mark the polygons
 	surf = cl.worldmodel->surfaces + node->firstsurface;
 	for (i=0 ; i<node->numsurfaces ; i++, surf++)
 	{
-		if (surf->dlightframe != r_dlightframecount)
+		for (j=0 ; j<3 ; j++)
+			impact[j] = light->origin[j] - surf->plane->normal[j]*dist;
+		// clamp center of light to corner and check brightness
+		l = DotProduct (impact, surf->texinfo->vecs[0]) + surf->texinfo->vecs[0][3] - surf->texturemins[0];
+		s = l+0.5;if (s < 0) s = 0;else if (s > surf->extents[0]) s = surf->extents[0];
+		s = l - s;
+		l = DotProduct (impact, surf->texinfo->vecs[1]) + surf->texinfo->vecs[1][3] - surf->texturemins[1];
+		t = l+0.5;if (t < 0) t = 0;else if (t > surf->extents[1]) t = surf->extents[1];
+		t = l - t;
+		// compare to minimum light
+		if ((s*s+t*t+dist*dist) < maxdist)
 		{
-			surf->dlightbits = 0;
-			surf->dlightframe = r_dlightframecount;
+			if (surf->dlightframe != r_dlightframecount) // not dynamic until now
+			{
+				surf->dlightbits = bit;
+				surf->dlightframe = r_dlightframecount;
+			}
+			else // already dynamic
+				surf->dlightbits |= bit;
 		}
-		surf->dlightbits |= bit;
 	}
 
-	R_MarkLights (light, bit, node->children[0]);
-	R_MarkLights (light, bit, node->children[1]);
+	if (node->children[0]->contents >= 0)
+		R_MarkLights (light, bit, node->children[0]);
+	if (node->children[1]->contents >= 0)
+		R_MarkLights (light, bit, node->children[1]);
 }
-
 
 /*
 =============
@@ -258,6 +280,8 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 	unsigned	scale;
 	int			maps;
 
+	int mods, modt, sample; //johnfitz -- lerp sample
+
 	if (node->contents < 0)
 		return -1;		// didn't hit anything
 	
@@ -283,7 +307,7 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 		return r;		// hit something
 		
 	if ( (back < 0) == side )
-		return -1;		// didn't hit anuthing
+		return -1;		// didn't hit anything
 		
 // check for impact on this node
 	VectorCopy (mid, lightspot);
@@ -298,10 +322,9 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 		tex = surf->texinfo;
 		
 		s = DotProduct (mid, tex->vecs[0]) + tex->vecs[0][3];
-		t = DotProduct (mid, tex->vecs[1]) + tex->vecs[1][3];;
+		t = DotProduct (mid, tex->vecs[1]) + tex->vecs[1][3];
 
-		if (s < surf->texturemins[0] ||
-		t < surf->texturemins[1])
+		if (s < surf->texturemins[0] || t < surf->texturemins[1])
 			continue;
 		
 		ds = s - surf->texturemins[0];
@@ -313,6 +336,11 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 		if (!surf->samples)
 			return 0;
 
+		//johnfitz -- lerp sample
+		mods = ds & 0x0F; 
+		modt = dt & 0x0F;
+		//johnfitz
+
 		ds >>= 4;
 		dt >>= 4;
 
@@ -320,18 +348,20 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 		r = 0;
 		if (lightmap)
 		{
-
 			lightmap += dt * ((surf->extents[0]>>4)+1) + ds;
-
-			for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
-					maps++)
+			for (maps=0; maps < MAXLIGHTMAPS && surf->styles[maps] != 255; maps++)
 			{
-				scale = d_lightstylevalue[surf->styles[maps]];
-				r += *lightmap * scale;
-				lightmap += ((surf->extents[0]>>4)+1) *
-						((surf->extents[1]>>4)+1);
+				//johnfitz -- lerp sample
+				sample =  lightmap[0] * (16-mods) * (16-modt);
+				sample += lightmap[1] * mods * (16-modt);
+				sample += lightmap[(surf->extents[0]>>4)+1] * (16-mods) * modt;
+				sample += lightmap[(surf->extents[0]>>4)+2] * mods * modt;
+				sample >>= 8;
+				r += sample * d_lightstylevalue[surf->styles[maps]];
+				//johnfitz 
+
+				lightmap += ((surf->extents[0]>>4)+1) * ((surf->extents[1]>>4)+1);
 			}
-			
 			r >>= 8;
 		}
 		

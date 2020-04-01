@@ -31,7 +31,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	LINUX_VERSION		1.30
 #define	X11_VERSION			1.10
 
-#define	FITZQUAKE_VERSION	0.65 //johnfitz
+#define	FITZQUAKE_VERSION	0.70 //johnfitz
 
 //define	PARANOID			// speed sapping error checking
 
@@ -249,6 +249,7 @@ typedef struct
 #include "glquake.h"
 
 #include "image.h" //johnfitz
+#include "gl_texmgr.h" //johnfitz
 
 //=============================================================================
 
@@ -285,7 +286,6 @@ extern	cvar_t		developer;
 
 extern	qboolean	host_initialized;		// true if into command execution
 extern	double		host_frametime;
-extern	byte		*host_basepal;
 extern	byte		*host_colormap;
 extern	int			host_framecount;	// incremented every frame, never reset
 extern	double		realtime;			// not bounded in any way, changed at

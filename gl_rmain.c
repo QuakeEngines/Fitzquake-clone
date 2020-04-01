@@ -37,16 +37,13 @@ int			r_framecount;		// used for dlight push checking
 mplane_t	frustum[4];
 
 //johnfitz -- rendering statistics
-int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys, rs_dynamiclightmaps;
+int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
+int rs_dynamiclightmaps, rs_brushpasses, rs_aliaspasses, rs_skypasses;
 
 qboolean	envmap;				// true during envmap command capture 
 
-int			currenttexture = -1;		// to avoid unnecessary texture sets
-int			cnttextures[2] = {-1, -1};     // cached
-int			particletexture; // little dot for particles
-int			particletexture1, particletexture2, particletexture3; //johnfitz
-int			screentexture;		// johnfitz
-int			playertextures;		// up to 16 color translated skins
+//up to 16 color translated skins 
+gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz -- changed to an array of pointers
 
 //
 // view origin
@@ -71,8 +68,6 @@ texture_t	*r_notexture_mip;
 int		d_lightstylevalue[256];	// 8.8 fraction of base light value
 
 
-void R_MarkLeaves (void);
-
 cvar_t	r_norefresh = {"r_norefresh","0"};
 cvar_t	r_drawentities = {"r_drawentities","1"};
 cvar_t	r_drawviewmodel = {"r_drawviewmodel","1"};
@@ -87,43 +82,79 @@ cvar_t	r_novis = {"r_novis","0"};
 cvar_t	gl_finish = {"gl_finish","0"};
 cvar_t	gl_clear = {"gl_clear","0"};
 cvar_t	gl_cull = {"gl_cull","1"};
-cvar_t	gl_texsort = {"gl_texsort","1"};
+cvar_t	gl_texsort = {"gl_texsort","0"}; //johnfitz -- was 1
 cvar_t	gl_smoothmodels = {"gl_smoothmodels","1"};
 cvar_t	gl_affinemodels = {"gl_affinemodels","0"};
 cvar_t	gl_polyblend = {"gl_polyblend","1"};
 cvar_t	gl_flashblend = {"gl_flashblend","1"};
 cvar_t	gl_playermip = {"gl_playermip","0"};
 cvar_t	gl_nocolors = {"gl_nocolors","0"};
-cvar_t	gl_keeptjunctions = {"gl_keeptjunctions","0"};
-cvar_t	gl_reporttjunctions = {"gl_reporttjunctions","0"};
-cvar_t	gl_doubleeyes = {"gl_doubleeys", "1"};
+cvar_t	gl_keeptjunctions = {"gl_keeptjunctions","1"}; //johnfitz -- was 0
 
 //johnfitz -- new cvars
+cvar_t	r_stereo = {"r_stereo","0"};
+cvar_t	r_stereodepth = {"r_stereodepth","128"};
 cvar_t	r_clearcolor = {"r_clearcolor","2", true};
-cvar_t	r_particles = {"r_particles","1", true};
 cvar_t	r_drawflat = {"r_drawflat","0"};
 cvar_t	r_flatlightstyles = {"r_flatlightstyles", "0"};
 cvar_t	gl_fullbrights = {"gl_fullbrights", "1", true};
 cvar_t	gl_farclip = {"gl_farclip", "8192", true};
-cvar_t	gl_overbright_models = {"gl_overbright_models", "0", true};
-//cvar_t	_gl_texturemode = {"_gl_texturemode", "GL_LINEAR_MIPMAP_LINEAR", true};
+cvar_t	gl_overbright_models = {"gl_overbright_models", "1", true};
 //johnfitz
 
 extern	cvar_t	gl_ztrick;
 
 /*
 =================
-R_CullBox
+R_CullBox -- johnfitz -- replaced with new function from lordhavoc
 
 Returns true if the box is completely outside the frustum
 =================
 */
-qboolean R_CullBox (vec3_t mins, vec3_t maxs)
+qboolean R_CullBox (vec3_t emins, vec3_t emaxs)
 {
 	int i;
-	for (i=0 ; i<4 ; i++)
-		if (BoxOnPlaneSide (mins, maxs, &frustum[i]) == 2)
-			return true;
+	mplane_t *p;
+	for (i = 0;i < 4;i++)
+	{
+		p = frustum + i;
+		switch(p->signbits)
+		{
+		default:
+		case 0:
+			if (p->normal[0]*emaxs[0] + p->normal[1]*emaxs[1] + p->normal[2]*emaxs[2] < p->dist)
+				return true;
+			break;
+		case 1:
+			if (p->normal[0]*emins[0] + p->normal[1]*emaxs[1] + p->normal[2]*emaxs[2] < p->dist)
+				return true;
+			break;
+		case 2:
+			if (p->normal[0]*emaxs[0] + p->normal[1]*emins[1] + p->normal[2]*emaxs[2] < p->dist)
+				return true;
+			break;
+		case 3:
+			if (p->normal[0]*emins[0] + p->normal[1]*emins[1] + p->normal[2]*emaxs[2] < p->dist)
+				return true;
+			break;
+		case 4:
+			if (p->normal[0]*emaxs[0] + p->normal[1]*emaxs[1] + p->normal[2]*emins[2] < p->dist)
+				return true;
+			break;
+		case 5:
+			if (p->normal[0]*emins[0] + p->normal[1]*emaxs[1] + p->normal[2]*emins[2] < p->dist)
+				return true;
+			break;
+		case 6:
+			if (p->normal[0]*emaxs[0] + p->normal[1]*emins[1] + p->normal[2]*emins[2] < p->dist)
+				return true;
+			break;
+		case 7:
+			if (p->normal[0]*emins[0] + p->normal[1]*emins[1] + p->normal[2]*emins[2] < p->dist)
+				return true;
+			break;
+		}
+	}
 	return false;
 }
 
@@ -139,6 +170,29 @@ void R_RotateForEntity (entity_t *e)
     glRotatef (e->angles[1],  0, 0, 1);
     glRotatef (-e->angles[0],  0, 1, 0);
     glRotatef (e->angles[2],  1, 0, 0);
+}
+
+/*
+=============
+GL_PolygonOffset -- johnfitz
+
+negative offset moves polygon closer to camera
+=============
+*/
+void GL_PolygonOffset (int offset)
+{
+	if (offset > 0)
+	{
+		glEnable (GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(1, offset);
+	}
+	else if (offset < 0)
+	{
+		glEnable (GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(-1, offset);
+	}
+	else
+		glDisable (GL_POLYGON_OFFSET_FILL);
 }
 
 /*
@@ -278,7 +332,7 @@ void R_DrawSpriteModel (entity_t *e)
 
 	GL_DisableMultitexture();
 
-    GL_Bind(frame->gl_texturenum);
+    GL_Bind(frame->gltexture);
 
 	glEnable (GL_ALPHA_TEST);
 	glBegin (GL_QUADS);
@@ -304,7 +358,6 @@ void R_DrawSpriteModel (entity_t *e)
 	glVertex3fv (point);
 	
 	glEnd ();
-
 	glDisable (GL_ALPHA_TEST);
 
 	//johnfitz: offset decals
@@ -328,7 +381,7 @@ float	r_avertexnormals[NUMVERTEXNORMALS][3] = {
 };
 
 vec3_t	shadevector;
-float	shadelight, ambientlight;
+float	shadelight;
 
 // precalculated dot products for quantized angles
 #define SHADEDOT_QUANT 16
@@ -360,7 +413,6 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 	float	*normal;
 	int		count;
 	float	hscale, vscale; //johnfitz -- padded skins
-	extern cvar_t chase_alpha; //johnfitz -- chasecam
 
 	//johnfitz -- padded skins
 	hscale = (float)paliashdr->skinwidth/(float)Pad(paliashdr->skinwidth);
@@ -372,15 +424,6 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 	verts = (trivertx_t *)((byte *)paliashdr + paliashdr->posedata);
 	verts += posenum * paliashdr->poseverts;
 	order = (int *)((byte *)paliashdr + paliashdr->commands);
-
-	//johnfitz -- chasecam
-	if (currententity == &cl_entities[cl.viewentity] && chase_alpha.value < 1.0)
-	{
-		glEnable (GL_BLEND);
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-		//glDepthMask(0);
-	}
-	//johnfitz
 
 	if (r_drawflat.value)
 		glDisable (GL_TEXTURE_2D); //johnfitz -- drawflat
@@ -404,11 +447,11 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 		{
 			// texture coordinates come from the draw list
 
-			//johnfitz -- fullbrights in multitexture
+			//johnfitz -- multitexture
 			if(mtexenabled)
 			{
-				qglMTexCoord2fSGIS (TEXTURE0_SGIS, hscale*((float *)order)[0], vscale*((float *)order)[1]);
-				qglMTexCoord2fSGIS (TEXTURE1_SGIS, hscale*((float *)order)[0], vscale*((float *)order)[1]);
+				GL_MTexCoord2fFunc (TEXTURE0, hscale*((float *)order)[0], vscale*((float *)order)[1]);
+				GL_MTexCoord2fFunc (TEXTURE1, hscale*((float *)order)[0], vscale*((float *)order)[1]);
 			}
 			else
 				glTexCoord2f (hscale*((float *)order)[0], vscale*((float *)order)[1]);
@@ -417,28 +460,20 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 			order += 2;
 
 			//johnfitz -- fullbright models
-			if (!r_fullbright.value /* && !r_fullbright_models.value */) 
+			if (!r_fullbright.value) 
 				l = shadedots[verts->lightnormalindex] * shadelight; // normals and vertexes come from the frame list
 			else
 				l = 1.0;
 			//johnfitz
 			
-			//johnfitz -- chase_alpha and r_drawflat support
+			//johnfitz -- r_drawflat
 			if (r_drawflat.value)
 			{
 				srand(count * (unsigned int) order);
-				if (currententity == &cl_entities[cl.viewentity] && chase_alpha.value < 1.0)
-					glColor4f (rand()%256/255.0, rand()%256/255.0, rand()%256/255.0, chase_alpha.value);
-				else
-					glColor3f (rand()%256/255.0, rand()%256/255.0, rand()%256/255.0);
+				glColor3f (rand()%256/255.0, rand()%256/255.0, rand()%256/255.0);
 			}
-			else 
-			{
-				if (currententity == &cl_entities[cl.viewentity] && chase_alpha.value < 1.0)
-					glColor4f (l, l, l, chase_alpha.value);
-				else
-					glColor3f (l, l, l);
-			}
+			else
+				glColor3f (l, l, l);
 			//johnfitz
 
 			glVertex3f (verts->v[0], verts->v[1], verts->v[2]);
@@ -448,15 +483,6 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 		glEnd ();
 	}
 
-	//johnfitz -- chasecam
-	if (currententity == &cl_entities[cl.viewentity] && chase_alpha.value < 1.0)
-	{
-		glDisable (GL_BLEND);	
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-		//glDepthMask(1);
-	}
-	//johnfitz
-
 	//johnfitz -- drawflat
 	if (r_drawflat.value)
 	{
@@ -464,28 +490,40 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 		srand((int) (cl.time * 1000)); //restore randomness
 	}
 	//johnfitz
+
+	rs_aliaspasses += paliashdr->numtris; //johnfitz
 }
 
 
 /*
 =============
-GL_DrawAliasShadow
+GL_DrawAliasShadow --johnfitz -- moved some code here from other places
 =============
 */
 extern	vec3_t			lightspot;
 
 void GL_DrawAliasShadow (aliashdr_t *paliashdr, int posenum)
 {
-	float	s, t, l;
-	int		i, j;
-	int		index;
 	trivertx_t	*v, *verts;
-	int		list;
-	int		*order;
 	vec3_t	point;
+	float	s, t, l, height, lheight, an;
 	float	*normal;
-	float	height, lheight;
-	int		count;
+	int		i, j, list, count, index;
+	int		*order;
+
+	GL_DisableMultitexture ();
+
+	glPushMatrix ();
+	R_RotateForEntity (currententity);
+	glDisable (GL_TEXTURE_2D);
+	glEnable (GL_BLEND);
+	glColor4f (0,0,0,0.5);
+
+	an = currententity->angles[1]/180*M_PI;
+	shadevector[0] = cos(-an);
+	shadevector[1] = sin(-an);
+	shadevector[2] = 1;
+	VectorNormalize (shadevector);
 
 	lheight = currententity->origin[2] - lightspot[2];
 
@@ -494,7 +532,9 @@ void GL_DrawAliasShadow (aliashdr_t *paliashdr, int posenum)
 	verts += posenum * paliashdr->poseverts;
 	order = (int *)((byte *)paliashdr + paliashdr->commands);
 
-	height = -lheight + 1.0;
+	height = -lheight + 1.0; //FIXME: use GL_PolygonOffset instead or manually raising it 1.0?
+
+	//FIXME: orient shadow onto mplane_t *lightplane
 
 	while (1)
 	{
@@ -512,8 +552,6 @@ void GL_DrawAliasShadow (aliashdr_t *paliashdr, int posenum)
 
 		do
 		{
-			// texture coordinates come from the draw list
-			// (skipped for shadows) glTexCoord2fv ((float *)order);
 			order += 2;
 
 			// normals and vertexes come from the frame list
@@ -524,7 +562,6 @@ void GL_DrawAliasShadow (aliashdr_t *paliashdr, int posenum)
 			point[0] -= shadevector[0]*(point[2]+lheight);
 			point[1] -= shadevector[1]*(point[2]+lheight);
 			point[2] = height;
-//			height -= 0.001;
 			glVertex3fv (point);
 
 			verts++;
@@ -532,14 +569,18 @@ void GL_DrawAliasShadow (aliashdr_t *paliashdr, int posenum)
 
 		glEnd ();
 	}	
+
+	rs_aliaspasses += paliashdr->numtris; //johnfitz
+
+	glEnable (GL_TEXTURE_2D);
+	glDisable (GL_BLEND);
+	glColor4f (1,1,1,1);
+	glPopMatrix ();
 }
-
-
 
 /*
 =================
 R_SetupAliasFrame
-
 =================
 */
 void R_SetupAliasFrame (int frame, aliashdr_t *paliashdr)
@@ -570,103 +611,69 @@ void R_SetupAliasFrame (int frame, aliashdr_t *paliashdr)
 R_SetupAliasLighting -- johnfitz -- broken out from R_DrawAliasModel
 =================
 */
-void R_SetupAliasLighting ()
+void R_SetupAliasLighting (entity_t	*e)
 {
-	entity_t	*e;
-	model_t		*mod;
 	vec3_t		dist;
-	float		add, an;
-	int			lnum, i;
+	int			i;
 
-	e = currententity;
-	mod = e->model;
+	shadelight = R_LightPoint (e->origin);
 
-	ambientlight = shadelight = R_LightPoint (e->origin);
-
-	// allways give the gun some light
-	if (e == &cl.viewent && ambientlight < 24)
-		ambientlight = shadelight = 24;
-
-	for (lnum=0 ; lnum<MAX_DLIGHTS ; lnum++)
+	//add dlights
+	for (i=0 ; i<MAX_DLIGHTS ; i++)
 	{
-		if (cl_dlights[lnum].die >= cl.time)
+		if (cl_dlights[i].die >= cl.time)
 		{
-			VectorSubtract (currententity->origin,
-							cl_dlights[lnum].origin,
-							dist);
-			add = cl_dlights[lnum].radius - Length(dist);
-
-			if (add > 0) {
-				ambientlight += add;
-				//ZOID models should be affected by dlights as well
-				shadelight += add;
-			}
+			VectorSubtract (currententity->origin, cl_dlights[i].origin, dist);
+			shadelight += max (0, cl_dlights[i].radius - Length(dist));
 		}
 	}
 
-	// clamp lighting so it doesn't overbright as much
-	if (ambientlight > 128)
-		ambientlight = 128;
-	if (ambientlight + shadelight > 192)
-		shadelight = 192 - ambientlight;
+	// minimum light value on gun
+	if (e == &cl.viewent)
+		shadelight = max (shadelight, 24);
 
-	// ZOID: never allow players to go totally black
-	i = currententity - cl_entities;
-	if (i >= 1 && i<=cl.maxclients /* && !strcmp (currententity->model->name, "progs/player.mdl") */)
-		if (ambientlight < 8)
-			ambientlight = shadelight = 8;
+	// minimum light value on players
+	if (currententity > cl_entities && currententity <= cl_entities + cl.maxclients)
+		shadelight = max (shadelight, 8);
+
+	// clamp lighting so it doesn't overbright as much
+	if (gl_overbright_models.value)
+		shadelight = min (shadelight, 96);
 
 	//johnfitz -- hack up the brightness when fullbrights but no overbrights
 	if (gl_fullbrights.value && !gl_overbright_models.value)
-		if (!strcmp (mod->name, "progs/flame2.mdl") ||
-			!strcmp (mod->name, "progs/flame.mdl") ||
-		//	!strcmp (mod->name, "progs/bolt.mdl") ||
-		//	!strcmp (mod->name, "progs/bolt2.mdl") ||
-		//	!strcmp (mod->name, "progs/bolt3.mdl") ||
-		//	!strcmp (mod->name, "progs/laser.mdl") ||
-		//	!strcmp (mod->name, "progs/k_spike.mdl") ||
-		//	!strcmp (mod->name, "progs/w_spike.mdl") ||
-		//	!strcmp (mod->name, "progs/lavaball.mdl") ||
-			!strcmp (mod->name, "progs/boss.mdl"))
-			ambientlight = shadelight = 256;
+		if (!strcmp (e->model->name, "progs/flame2.mdl") ||
+			!strcmp (e->model->name, "progs/flame.mdl") ||
+			!strcmp (e->model->name, "progs/boss.mdl"))
+			shadelight = 200;
 
 	shadedots = r_avertexnormal_dots[((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1)];
 	shadelight = shadelight / 200.0;
-	
-	an = e->angles[1]/180*M_PI;
-	shadevector[0] = cos(-an);
-	shadevector[1] = sin(-an);
-	shadevector[2] = 1;
-	VectorNormalize (shadevector);
 }
 
 /*
 =================
-R_DrawAliasModel
-
+R_DrawAliasModel -- johnfitz -- almost completely rewritten
 =================
 */
 void R_DrawAliasModel (entity_t *e)
 {
 	aliashdr_t	*paliashdr;
 	trivertx_t	*verts, *v;
-	model_t		*clmodel;
 	vec3_t		mins, maxs;
 	float		s, t;
-	int			i, anim, index, texnum, fb; //johnfitz;
+	int			i, anim, index;
+	gltexture_t	*tx, *fb;
 
-	clmodel = currententity->model;
-
-	VectorAdd (currententity->origin, clmodel->mins, mins);
-	VectorAdd (currententity->origin, clmodel->maxs, maxs);
-
+	VectorAdd (currententity->origin, currententity->model->mins, mins);
+	VectorAdd (currententity->origin, currententity->model->maxs, maxs);
 	if (R_CullBox (mins, maxs))
 		return;
 
 	VectorCopy (currententity->origin, r_entorigin);
 	VectorSubtract (r_origin, r_entorigin, modelorg);
 
-	R_SetupAliasLighting (); //johnfitz
+	R_SetupAliasLighting (e);
 
 	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
 
@@ -674,99 +681,133 @@ void R_DrawAliasModel (entity_t *e)
 
     glPushMatrix ();
 	R_RotateForEntity (e);
+	glTranslatef (paliashdr->scale_origin[0], paliashdr->scale_origin[1], paliashdr->scale_origin[2]);
+	glScalef (paliashdr->scale[0], paliashdr->scale[1], paliashdr->scale[2]);
 
-	if (!strcmp (clmodel->name, "progs/eyes.mdl") && gl_doubleeyes.value) {
-		glTranslatef (paliashdr->scale_origin[0], paliashdr->scale_origin[1], paliashdr->scale_origin[2] - (22 + 8));
-// double size of eyes, since they are really hard to see in gl
-		glScalef (paliashdr->scale[0]*2, paliashdr->scale[1]*2, paliashdr->scale[2]*2);
-	} else {
-		glTranslatef (paliashdr->scale_origin[0], paliashdr->scale_origin[1], paliashdr->scale_origin[2]);
-		glScalef (paliashdr->scale[0], paliashdr->scale[1], paliashdr->scale[2]);
-	}
-
-// johnfitz -- draw model with possible fullbright mask and overbrightening
 	if (gl_smoothmodels.value && !r_drawflat.value)
 		glShadeModel (GL_SMOOTH);
 	if (gl_affinemodels.value)
 		glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
-	if (mtexenabled)
-		GL_DisableMultitexture();
+	GL_DisableMultitexture();
 
+	//
 	// set up textures
+	//
 	anim = (int)(cl.time*10) & 3;
-	texnum = paliashdr->gl_texturenum[currententity->skinnum][anim];
-	fb = paliashdr->fullbrightmasks[currententity->skinnum][anim];
+	tx = paliashdr->gltextures[currententity->skinnum][anim];
+	fb = paliashdr->fbtextures[currententity->skinnum][anim];
 	if (currententity->colormap != vid.colormap && !gl_nocolors.value)
 	{
 		i = currententity - cl_entities;
 		if (i >= 1 && i<=cl.maxclients /* && !strcmp (currententity->model->name, "progs/player.mdl") */)
-		    texnum = playertextures - 1 + i;
+		    tx = playertextures[i - 1];
 	}
 	if (!gl_fullbrights.value || r_drawflat.value || r_fullbright.value)
-		fb = -1;
+		fb = NULL;
 
 	//
 	// draw it
 	//
-	if (gl_overbright_models.value)
+	if (gl_overbright_models.value && !r_drawflat.value)
 	{
-		//FIXME: add path for overbright using multitexture
-
-		//overbright without multitexture
-		GL_Bind(texnum);
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-		R_SetupAliasFrame (currententity->frame, paliashdr);
-
-		glEnable(GL_BLEND);
-		glBlendFunc (GL_ONE, GL_ONE);
-		R_SetupAliasFrame (currententity->frame, paliashdr);
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glDisable(GL_BLEND);
-
-		if (fb != -1) //fullbright mask seperately
+		if  (gl_texture_env_combine && gl_mtexable && fb) //case 1: everything in one pass
 		{
-			GL_Bind(fb);
-			glEnable(GL_BLEND);
-			glDepthMask(GL_FALSE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
-			glDepthMask(GL_TRUE);
-			glDisable(GL_BLEND);
-		}
-	}
-	else
-	{
-		if (fb == -1) //case 1: no fullbright mask
-		{		
-			GL_Bind(texnum);
-			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
-			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-		}
-		else if(gl_mtexable) //case 2: fullbright mask using multitexture
-		{
-			GL_SelectTexture(TEXTURE0_SGIS);
-			GL_Bind (texnum);
-			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-			GL_EnableMultitexture(); // selects TEXTURE1_SGIS 
+			GL_Bind (tx);
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
+			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
+			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_TEXTURE);
+			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_PRIMARY_COLOR_EXT);
+			glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE_EXT, 2.0f);
+			GL_EnableMultitexture(); // selects TEXTURE1
 			GL_Bind (fb);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
 			glEnable(GL_BLEND);
-
 			R_SetupAliasFrame (currententity->frame, paliashdr);
-
 			glDisable(GL_BLEND);
 			GL_DisableMultitexture();
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
 		}
-		else //case 3: fullbright mask without multitexture
+		else if (gl_texture_env_combine) //case 2: overbright in one pass, then fullbright pass
 		{
-			GL_Bind(texnum);
+		// first pass
+			GL_Bind(tx);
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
+			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
+			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_TEXTURE);
+			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_PRIMARY_COLOR_EXT);
+			glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE_EXT, 2.0f);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE_EXT, 1.0f);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+		// second pass
+			if (fb)
+			{
+				GL_Bind(fb);
+				glEnable(GL_BLEND);
+				glDepthMask(GL_FALSE);
+				R_SetupAliasFrame (currententity->frame, paliashdr);
+				glDepthMask(GL_TRUE);
+				glDisable(GL_BLEND);
+			}
+		}
+		else //case 3: overbright in two passes, then fullbright pass
+		{
+		// first pass
+			GL_Bind(tx);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 			R_SetupAliasFrame (currententity->frame, paliashdr);
+		// second pass
+			glEnable(GL_BLEND);
+			glBlendFunc (GL_ONE, GL_ONE);
+			glDepthMask(GL_FALSE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glDepthMask(GL_TRUE);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDisable(GL_BLEND);
+		// third pass
+			if (fb)
+			{
+				GL_Bind(fb);
+				glEnable(GL_BLEND);
+				glDepthMask(GL_FALSE);
+				R_SetupAliasFrame (currententity->frame, paliashdr);
+				glDepthMask(GL_TRUE);
+				glDisable(GL_BLEND);
+			}
+		}
+	}
+	else
+	{
+		if (!fb) //case 4: no fullbright mask
+		{		
+			GL_Bind(tx);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+		}
+		else if (gl_mtexable) //case 5: fullbright mask using multitexture
+		{
+			GL_DisableMultitexture(); // selects TEXTURE0
+			GL_Bind (tx);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+			GL_EnableMultitexture(); // selects TEXTURE1 
+			GL_Bind (fb);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+			glEnable(GL_BLEND);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+			glDisable(GL_BLEND);
+			GL_DisableMultitexture();
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
-			
+		}
+		else //case 6: fullbright mask without multitexture
+		{
+		// first pass
+			GL_Bind(tx);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+			R_SetupAliasFrame (currententity->frame, paliashdr);
+		// second pass
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
 			GL_Bind(fb);
 			glEnable(GL_BLEND);
 			glDepthMask(GL_FALSE);
@@ -780,205 +821,18 @@ void R_DrawAliasModel (entity_t *e)
 		glShadeModel (GL_FLAT);
 	if (gl_affinemodels.value)
 		glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
-// johnfitz
-
 
 	glPopMatrix ();
 
 	if (r_shadows.value)
-	{
-		glPushMatrix ();
-		R_RotateForEntity (e);
-		glDisable (GL_TEXTURE_2D);
-		glEnable (GL_BLEND);
-		glColor4f (0,0,0,0.5);
 		GL_DrawAliasShadow (paliashdr, lastposenum);
-		glEnable (GL_TEXTURE_2D);
-		glDisable (GL_BLEND);
-		glColor4f (1,1,1,1);
-		glPopMatrix ();
-	}
-
 }
 
-//==================================================================================
-
-/*
-=============
-R_DrawEntitiesOnList
-=============
-*/
-void R_DrawEntitiesOnList (void)
-{
-	extern cvar_t r_vfog; //johnfitz
-	int		i;
-
-	if (!r_drawentities.value)
-		return;
-
-	//johnfitz -- sprites are not a special case
-	for (i=0 ; i<cl_numvisedicts ; i++)
-	{
-		currententity = cl_visedicts[i];
-
-		//johnfitz -- chasecam
-		if (currententity == &cl_entities[cl.viewentity])
-			continue;
-		//johnfitz
-
-		switch (currententity->model->type)
-		{
-		case mod_alias:
-			R_DrawAliasModel (currententity);
-			break;
-#if 0
-		//johnfitz -- if vfog disabled, treat fog as a normal bmodel
-		case mod_fog:
-			if (!r_vfog.value)
-				R_DrawBrushModel (currententity);
-			break;
-#endif
-		case mod_brush:
-			R_DrawBrushModel (currententity);
-			break;
-
-		case mod_sprite:
-			R_DrawSpriteModel (currententity);
-			break;
-
-		default:
-			break;
-		}
-	}
-}
-
-/*
-=============
-R_DrawViewEntity -- johnfitz -- used for drawing the playermodel when chasecam is active
-=============
-*/
-void R_DrawViewEntity (void)
-{
-	if (!chase_active.value)
-		return;
-
-	currententity = &cl_entities[cl.viewentity];
-	currententity->angles[0] *= 0.3;
-
-	R_DrawAliasModel (currententity);
-}
-
-/*
-=============
-R_DrawViewModel
-=============
-*/
-void R_DrawViewModel (void)
-{
-	float		ambient[4], diffuse[4];
-	int			j;
-	int			lnum;
-	vec3_t		dist;
-	float		add;
-	dlight_t	*dl;
-	int			ambientlight, shadelight;
-
-	if (!r_drawviewmodel.value)
-		return;
-
-	if (chase_active.value)
-		return;
-
-	if (envmap)
-		return;
-
-	if (!r_drawentities.value)
-		return;
-
-	if (cl.items & IT_INVISIBILITY)
-		return;
-
-	if (cl.stats[STAT_HEALTH] <= 0)
-		return;
-
-	currententity = &cl.viewent;
-	if (!currententity->model)
-		return;
-
-	j = R_LightPoint (currententity->origin);
-
-	if (j < 24)
-		j = 24;		// allways give some light on gun
-	ambientlight = j;
-	shadelight = j;
-
-// add dynamic lights		
-	for (lnum=0 ; lnum<MAX_DLIGHTS ; lnum++)
-	{
-		dl = &cl_dlights[lnum];
-		if (!dl->radius)
-			continue;
-		if (!dl->radius)
-			continue;
-		if (dl->die < cl.time)
-			continue;
-
-		VectorSubtract (currententity->origin, dl->origin, dist);
-		add = dl->radius - Length(dist);
-		if (add > 0)
-			ambientlight += add;
-	}
-
-	ambient[0] = ambient[1] = ambient[2] = ambient[3] = (float)ambientlight / 128;
-	diffuse[0] = diffuse[1] = diffuse[2] = diffuse[3] = (float)shadelight / 128;
-
-	// hack the depth range to prevent view model from poking into walls
-	glDepthRange (gldepthmin, gldepthmin + 0.3*(gldepthmax-gldepthmin));
-	R_DrawAliasModel (currententity);
-	glDepthRange (gldepthmin, gldepthmax);
-}
-
-
-/*
-============
-R_PolyBlend
-============
-*/
-void R_PolyBlend (void)
-{
-	if (!gl_polyblend.value || cl.intermission) //johnfitz -- don't show blend during intermission
-		return;
-	if (!v_blend[3])
-		return;
-
-	GL_DisableMultitexture();
-
-	glDisable (GL_ALPHA_TEST);
-	glEnable (GL_BLEND);
-	glDisable (GL_DEPTH_TEST);
-	glDisable (GL_TEXTURE_2D);
-
-    glLoadIdentity ();
-
-    glRotatef (-90,  1, 0, 0);	    // put Z going up
-    glRotatef (90,  0, 0, 1);	    // put Z going up
-
-	glColor4fv (v_blend);
-
-	glBegin (GL_QUADS);
-
-	//johnfitz 100 changed to 120 to cover entire screen even when fov = 170
-	glVertex3f (10, 120, 100);
-	glVertex3f (10, -120, 100);
-	glVertex3f (10, -120, -100);
-	glVertex3f (10, 120, -100);
-	//johnfitz
-	glEnd ();
-
-	glDisable (GL_BLEND);
-	glEnable (GL_TEXTURE_2D);
-	glEnable (GL_ALPHA_TEST);
-}
+//==============================================================================
+//
+// SETUP FRAME
+//
+//==============================================================================
 
 int SignbitsForPlane (mplane_t *out)
 {
@@ -1041,61 +895,18 @@ void R_SetFrustum (void)
 }
 
 /*
-===============
-R_SetupFrame
-===============
-*/
-void R_SetupFrame (void)
-{
-	int				edgecount;
-	vrect_t			vrect;
-	float			w, h;
-
-	//johnfitz -- disable cheats in multiplayer
-	//TODO: find a less hacky way to do this.
-	if (cl.maxclients > 1)
-	{
-		Cvar_Set ("r_fullbright", "0");
-		Cvar_Set ("r_drawflat", "0");
-	}
-	//johnfitz
-
-	Fog_SetupFrame (); //johnfitz
-
-	R_AnimateLight ();
-
-	r_framecount++;
-
-// build the transformation matrix for the given view angles
-	VectorCopy (r_refdef.vieworg, r_origin);
-
-	AngleVectors (r_refdef.viewangles, vpn, vright, vup);
-
-// current viewleaf
-	r_oldviewleaf = r_viewleaf;
-	r_viewleaf = Mod_PointInLeaf (r_origin, cl.worldmodel);
-
-	V_SetContentsColor (r_viewleaf->contents);
-	V_CalcBlend ();
-
-	r_cache_thrash = false;
-
-	//johnfitz -- rendering statistics
-	rs_brushpolys = rs_aliaspolys = rs_skypolys = rs_particles = rs_fogpolys = rs_dynamiclightmaps = 0;
-}
-
-/*
 =============
-GL_SetFrustum
-johnfitz -- written to replace MYgluPerspective
+GL_SetFrustum -- johnfitz -- written to replace MYgluPerspective
 =============
 */
-void GL_SetFrustum(float fovy, float fovx, float zNear, float zFar )
+#define NEARCLIP 4
+float frustum_skew = 0.0; //used by r_stereo
+void GL_SetFrustum(float fovx, float fovy)
 {
    float xmax, ymax;
-   ymax = zNear * tan( fovy * M_PI / 360.0 );
-   xmax = zNear * tan( fovx * M_PI / 360.0 );
-   glFrustum( -xmax, xmax, -ymax, ymax, zNear, zFar );
+   xmax = NEARCLIP * tan( fovx * M_PI / 360.0 );
+   ymax = NEARCLIP * tan( fovy * M_PI / 360.0 );
+   glFrustum(-xmax + frustum_skew, xmax + frustum_skew, -ymax, ymax, NEARCLIP, gl_farclip.value);
 }
 
 /*
@@ -1107,40 +918,17 @@ void R_SetupGL (void)
 {
 	int		i;
 	extern	int glwidth, glheight;
-	int		x, x2, y2, y, w, h;
 	float fovx, fovy; //johnfitz
 	int contents; //johnfitz
 
-	//
-	// set up viewpoint
-	//
+	//johnfitz -- rewrote this section
 	glMatrixMode(GL_PROJECTION);
     glLoadIdentity ();
-	x = r_refdef.vrect.x * glwidth/vid.width;
-	x2 = (r_refdef.vrect.x + r_refdef.vrect.width) * glwidth/vid.width;
-	y = (vid.height-r_refdef.vrect.y) * glheight/vid.height;
-	y2 = (vid.height - (r_refdef.vrect.y + r_refdef.vrect.height)) * glheight/vid.height;
-
-	// fudge around because of frac screen scale
-	if (x > 0)
-		x--;
-	if (x2 < glwidth)
-		x2++;
-	if (y2 < 0)
-		y2--;
-	if (y < glheight)
-		y++;
-
-	w = x2 - x;
-	h = y - y2;
-
-	if (envmap)
-	{
-		x = y2 = 0;
-		w = h = 256;
-	}
-
-	glViewport (glx + x, gly + y2, w, h);
+	glViewport (glx + r_refdef.vrect.x, 
+				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height, 
+				r_refdef.vrect.width, 
+				r_refdef.vrect.height);
+	//johnfitz
 
 	//johnfitz -- warp view for underwater
 	fovx = r_refdef.fov_x;
@@ -1148,22 +936,16 @@ void R_SetupGL (void)
 	if (r_waterwarp.value)
 	{
 		contents = Mod_PointInLeaf (r_origin, cl.worldmodel)->contents;
-		if (contents == CONTENTS_WATER ||
-			contents == CONTENTS_SLIME ||
-			contents == CONTENTS_LAVA)
+		if (contents == CONTENTS_WATER || contents == CONTENTS_SLIME || contents == CONTENTS_LAVA)
 		{
 			//variance should be a percentage of width, where width = 2 * tan(fov / 2)
 			//otherwise the effect is too dramatic at high FOV and too subtle at low FOV
 			//what a mess!
 			fovx = atan(tan(DEG2RAD(r_refdef.fov_x) / 2) * (0.97 + sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
 			fovy = atan(tan(DEG2RAD(r_refdef.fov_y) / 2) * (1.03 - sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
-
-			//old method where variance was a percentage of fov
-			//fovx = r_refdef.fov_x * (0.98 + sin(cl.time * 1.5) * 0.02);
-			//fovy = r_refdef.fov_y * (1.02 - sin(cl.time * 1.5) * 0.02);
 		}
 	}
-    GL_SetFrustum (fovy, fovx, 4, gl_farclip.value);
+    GL_SetFrustum (fovx, fovy);
 	//johnfitz
 
 	glCullFace(GL_FRONT);
@@ -1194,74 +976,57 @@ void R_SetupGL (void)
 }
 
 /*
-================
-R_RenderScene
-
-r_refdef must be set before the first call
-================
+===============
+R_SetupFrame
+===============
 */
-void R_RenderScene (void)
+void R_SetupFrame (void)
 {
-	R_SetupFrame ();
+	int				edgecount;
+	vrect_t			vrect;
+	float			w, h;
 
-	R_SetFrustum ();
-
-	R_SetupGL ();
-
-	R_MarkLeaves ();	// done here so we know if we're in water
-
-	Fog_EnableGFog (); //johnfitz
-
-	R_DrawWorld ();		// adds static entities to the list
-
-	S_ExtraUpdate ();	// don't let sound get messed up if going slow
-
-	R_DrawEntitiesOnList ();
-
-	GL_DisableMultitexture();
-
-	R_RenderDlights (); //triangle fan dlights
-
-	R_DrawViewEntity (); //johnfitz -- player model for chasecam
-
-	R_DrawWaterSurfaces (); //johnfitz -- moved here from R_RenderView() -- particle z-buffer bug
-
-	Fog_DrawVFog (); //johnfitz
-
-	if (r_drawflat.value)
-		srand ((int) (cl.time * 1000)); //johnfitz -- reset rand() after abusing it for r_drawflat
-
-	R_DrawParticles ();
-
-	Fog_DisableGFog (); //johnfitz
-
-#ifdef GLTEST
-	Test_Draw ();
-#endif
-
-}
-
-/*
-=============
-GL_PolygonOffset -- johnfitz
-
-negative offset moves polygon closer to camera
-=============
-*/
-void GL_PolygonOffset (int offset)
-{
-	if (offset)
+	//johnfitz -- disable cheats in multiplayer
+	//TODO: find a less hacky way to do this.
+	if (cl.maxclients > 1)
 	{
-		glEnable (GL_POLYGON_OFFSET_FILL);
-
-		if (offset > 0)
-			glPolygonOffset(1, offset);
-		else
-			glPolygonOffset(-1, offset);
+		Cvar_Set ("r_fullbright", "0");
+		Cvar_Set ("r_drawflat", "0");
 	}
-	else
-		glDisable (GL_POLYGON_OFFSET_FILL);
+	//johnfitz
+
+	R_PushDlights (); //johnfitz -- moved here from V_RenderView
+
+	Fog_SetupFrame (); //johnfitz
+
+	R_AnimateLight ();
+
+	r_framecount++;
+
+// build the transformation matrix for the given view angles
+	VectorCopy (r_refdef.vieworg, r_origin);
+
+	AngleVectors (r_refdef.viewangles, vpn, vright, vup);
+
+// current viewleaf
+	r_oldviewleaf = r_viewleaf;
+	r_viewleaf = Mod_PointInLeaf (r_origin, cl.worldmodel);
+
+	V_SetContentsColor (r_viewleaf->contents);
+	V_CalcBlend ();
+
+	r_cache_thrash = false;
+
+	R_SetFrustum (); //johnfitz -- moved here from R_RenderScene
+
+	R_SetupGL (); //johnfitz -- moved here from R_RenderScene
 }
+
+//==============================================================================
+//
+// RENDER VIEW
+//
+//==============================================================================
 
 /*
 =============
@@ -1312,6 +1077,122 @@ void R_Clear (void)
 }
 
 /*
+=============
+R_DrawEntitiesOnList
+=============
+*/
+void R_DrawEntitiesOnList (void)
+{
+	extern cvar_t r_vfog; //johnfitz
+	int		i;
+
+	if (!r_drawentities.value)
+		return;
+
+	//johnfitz -- sprites are not a special case
+	for (i=0 ; i<cl_numvisedicts ; i++)
+	{
+		currententity = cl_visedicts[i];
+
+		//johnfitz -- chasecam
+		if (currententity == &cl_entities[cl.viewentity])
+			currententity->angles[0] *= 0.3;
+		//johnfitz
+
+		switch (currententity->model->type)
+		{
+		case mod_alias:
+			R_DrawAliasModel (currententity);
+			break;
+#if 0
+		//johnfitz -- if vfog disabled, treat fog as a normal bmodel
+		case mod_fog:
+			if (!r_vfog.value)
+				R_DrawBrushModel (currententity);
+			break;
+#endif
+		case mod_brush:
+			R_DrawBrushModel (currententity);
+			break;
+
+		case mod_sprite:
+			R_DrawSpriteModel (currententity);
+			break;
+
+		default:
+			break;
+		}
+	}
+}
+
+/*
+=============
+R_DrawViewModel -- johnfitz -- gutted
+=============
+*/
+void R_DrawViewModel (void)
+{
+	if (!r_drawviewmodel.value || !r_drawentities.value || chase_active.value || envmap)
+		return;
+
+	if (cl.items & IT_INVISIBILITY || cl.stats[STAT_HEALTH] <= 0)
+		return;
+
+	currententity = &cl.viewent;
+	if (!currententity->model)
+		return;
+
+	if (currententity->model->type != mod_alias) //johnfitz -- this fixes a crash
+		return;
+
+	// hack the depth range to prevent view model from poking into walls
+	glDepthRange (gldepthmin, gldepthmin + 0.3*(gldepthmax-gldepthmin));
+	R_DrawAliasModel (currententity);
+	glDepthRange (gldepthmin, gldepthmax);
+}
+
+/*
+================
+R_RenderScene
+
+r_refdef must be set before the first call
+================
+*/
+void R_RenderScene (void)
+{
+	R_SetupFrame ();
+
+	R_MarkLeaves (); // done here so we know if we're in water
+
+	Fog_EnableGFog (); //johnfitz
+
+	R_DrawWorld (); // adds static entities to the list
+
+	S_ExtraUpdate (); // don't let sound get messed up if going slow
+
+	R_DrawEntitiesOnList ();
+
+	GL_DisableMultitexture();
+
+	R_DrawWaterSurfaces (); //johnfitz -- moved here from R_RenderView() -- particle z-buffer bug
+
+	R_RenderDlights (); //triangle fan dlights -- johnfitz -- moved after water
+
+	Fog_DrawVFog (); //johnfitz
+
+	if (r_drawflat.value)
+		srand ((int) (cl.time * 1000)); //johnfitz -- reset rand() after abusing it for r_drawflat
+
+	R_DrawParticles ();
+
+	Fog_DisableGFog (); //johnfitz
+
+#ifdef GLTEST
+	Test_Draw ();
+#endif
+}
+
+/*
 ================
 R_RenderView
 
@@ -1332,22 +1213,73 @@ void R_RenderView (void)
 	{
 		glFinish ();
 		time1 = Sys_FloatTime ();
+
+		//johnfitz -- rendering statistics
+		rs_brushpolys = rs_aliaspolys = rs_skypolys = rs_particles = rs_fogpolys = 
+		rs_dynamiclightmaps = rs_aliaspasses = rs_skypasses = rs_brushpasses = 0;
 	}
 	else if (gl_finish.value)
 		glFinish ();
 
 	R_Clear ();
 
-	R_RenderScene ();
-
-	R_DrawViewModel ();
-
-	R_PolyBlend ();
-
-	if (r_speeds.value)
+	//johnfitz -- stereo rendering -- full of hacky goodness
+	if (r_stereo.value)
 	{
-		time2 = Sys_FloatTime ();
-		Con_Printf ("%3i ms  %4i wpoly %4i epoly %4i lmap %4i sky\n", (int)((time2-time1)*1000), rs_brushpolys, rs_aliaspolys, rs_dynamiclightmaps, rs_skypolys);
+		float eyesep = CLAMP(-8.0f, r_stereo.value, 8.0f);
+		float fdepth = CLAMP(32.0f, r_stereodepth.value, 1024.0f);
+
+		AngleVectors (r_refdef.viewangles, vpn, vright, vup);
+
+		//render left eye (red)
+		glColorMask(1, 0, 0, 1);
+		VectorMA (r_refdef.vieworg, -0.5f * eyesep, vright, r_refdef.vieworg);
+		frustum_skew = 0.5 * eyesep * NEARCLIP / fdepth;
+		srand((int) (cl.time * 1000)); //sync random stuff between eyes
+
+		R_RenderScene ();
+		R_DrawViewModel ();
+
+		//render right eye (cyan)
+		glClear (GL_DEPTH_BUFFER_BIT);
+		glColorMask(0, 1, 1, 1);
+		VectorMA (r_refdef.vieworg, 1.0f * eyesep, vright, r_refdef.vieworg);
+		frustum_skew = -frustum_skew;
+		srand((int) (cl.time * 1000)); //sync random stuff between eyes
+
+		R_RenderScene ();
+		R_DrawViewModel ();
+
+		//restore
+		glColorMask(1, 1, 1, 1);
+		VectorMA (r_refdef.vieworg, -0.5f * eyesep, vright, r_refdef.vieworg);
+		frustum_skew = 0.0f;
 	}
+	else
+	{
+		R_RenderScene ();
+		R_DrawViewModel ();
+	}
+	//johnfitz
+
+	//johnfitz -- modified r_speeds output
+	time2 = Sys_FloatTime ();
+	if (r_speeds.value == 2)
+		Con_Printf ("%3i ms  %4i/%4i wpoly %4i/%4i epoly %3i lmap %4i/%4i sky\n", 
+					(int)((time2-time1)*1000), 
+					rs_brushpolys, 
+					rs_brushpasses, 
+					rs_aliaspolys, 
+					rs_aliaspasses, 
+					rs_dynamiclightmaps, 
+					rs_skypolys, 
+					rs_skypasses);
+	else if (r_speeds.value)
+		Con_Printf ("%3i ms  %4i wpoly %4i epoly %3i lmap\n", 
+					(int)((time2-time1)*1000), 
+					rs_brushpolys, 
+					rs_aliaspolys, 
+					rs_dynamiclightmaps);
+	//johnfitz
 }
 
