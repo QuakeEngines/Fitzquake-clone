@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -80,6 +80,7 @@ typedef struct
 	float	decay;				// drop this each second
 	float	minlight;			// don't add when contributing less
 	int		key;
+	vec3_t	color;				//johnfitz -- lit support via lordhavoc
 #ifdef QUAKE2
 	qboolean	dark;			// subtracts light instead of adding
 #endif

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -258,14 +258,12 @@ void CL_ParseServerInfo (void)
 	strncpy (cl.levelname, str, sizeof(cl.levelname)-1);
 
 // seperate the printfs so the server message can have a color
-	Con_Printf("\n\n%s\n\n", Con_Quakebar(40)); //johnfitz
+	Con_Printf ("\n\n%s\n", Con_Quakebar(40)); //johnfitz
 	Con_Printf ("%c%s\n\n", 2, str);
 
-//
 // first we go through and touch all of the precache data that still
 // happens to be in the cache, so precaching something else doesn't
 // needlessly purge it
-//
 
 // precache models
 	memset (cl.model_precache, 0, sizeof(cl.model_precache));

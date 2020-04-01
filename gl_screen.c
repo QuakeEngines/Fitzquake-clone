@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -116,6 +116,8 @@ qboolean	scr_drawloading;
 float		scr_disabled_time;
 
 qboolean	block_drawing;
+
+int	scr_tileclear_updates = 0; //johnfitz
 
 void SCR_ScreenShot_f (void);
 
@@ -266,6 +268,8 @@ static void SCR_CalcRefdef (void)
 
 // force the status bar to redraw
 	Sbar_Changed ();
+
+	scr_tileclear_updates = 0; //johnfitz
 	
 // bound viewsize
 	if (scr_viewsize.value < 30)
@@ -427,6 +431,8 @@ void SCR_DrawFPS (void)
 		y -= 8; //make room for clock
 
 	Draw_String (glwidth - (strlen(str)<<3), y, str);
+
+	scr_tileclear_updates = 0;
 }
 
 /*
@@ -448,7 +454,7 @@ void SCR_DrawClock (void)
 		sprintf (str,"%i:%i%i", minutes, seconds/10, seconds%10);
 	}
 #ifdef _WIN32
-	else if  (scr_clock.value == 2)
+	else if (scr_clock.value == 2)
 	{
 		int hours, minutes, seconds;
 		SYSTEMTIME systime;
@@ -469,11 +475,25 @@ void SCR_DrawClock (void)
 
 		sprintf (str,"%i:%i%i:%i%i %s", hours%12, minutes/10, minutes%10, seconds/10, seconds%10, m);
 	}
+	else if (scr_clock.value == 3)
+	{
+		int hours, minutes, seconds;
+		SYSTEMTIME systime;
+
+		GetLocalTime(&systime);
+		hours = systime.wHour;
+		minutes = systime.wMinute;
+		seconds = systime.wSecond;
+
+		sprintf (str,"%i:%i%i:%i%i", hours%12, minutes/10, minutes%10, seconds/10, seconds%10);
+	}
 #endif
 	else
 		return;
 
 	Draw_String (glwidth - (strlen(str)<<3), glheight - sb_lines - 8, str);
+
+	scr_tileclear_updates = 0;
 }
 
 /*
@@ -541,16 +561,18 @@ void SCR_DrawPause (void)
 {
 	qpic_t	*pic;
 
-	if (!scr_showpause.value)		// turn off for screenshots
+	if (!cl.paused)
 		return;
 
-	if (!cl.paused)
+	if (!scr_showpause.value)		// turn off for screenshots
 		return;
 
 	GL_SetCanvas (CANVAS_MENU); //johnfitz
 
 	pic = Draw_CachePic ("gfx/pause.lmp");
 	Draw_Pic ( (320 - pic->width)/2, (240 - 48 - pic->height)/2, pic); //johnfitz -- stretched menus
+
+	scr_tileclear_updates = 0; //johnfitz
 }
 
 /*
@@ -569,6 +591,8 @@ void SCR_DrawLoading (void)
 		
 	pic = Draw_CachePic ("gfx/loading.lmp");
 	Draw_Pic ( (320 - pic->width)/2, (240 - 48 - pic->height)/2, pic); //johnfitz -- stretched menus
+
+	scr_tileclear_updates = 0; //johnfitz
 }
 
 
@@ -617,6 +641,9 @@ void SCR_SetUpToDrawConsole (void)
 
 	if (clearconsole++ < vid.numpages)
 		Sbar_Changed ();
+
+	if (!con_forcedup && scr_con_current)
+		scr_tileclear_updates = 0; //johnfitz
 }
 	
 /*
@@ -830,13 +857,14 @@ int SCR_ModalMessage (char *text)
 ==================
 SCR_TileClear -- johnfitz -- modified to use glwidth/glheight instead of vid.width/vid.height
                              also fixed the dimentions of right and top panels
-							 also don't bother to draw anything when console fills screen
+							 also added scr_tileclear_updates
 ==================
 */
 void SCR_TileClear (void)
 {
-	if (con_forcedup)
+	if (scr_tileclear_updates >= vid.numpages && !gl_clear.value) 
 		return;
+	scr_tileclear_updates++;
 
 	if (r_refdef.vrect.x > 0)
 	{
@@ -885,7 +913,7 @@ void SCR_UpdateScreen (void)
 	if (block_drawing)
 		return;
 
-	vid.numpages = 2 + gl_triplebuffer.value;
+	vid.numpages = 2 + (gl_triplebuffer.value ? 1 : 0); //johnfitz -- in case gl_triplebuffer is not 0 or 1
 
 	if (scr_disabled_for_loading)
 	{
@@ -937,9 +965,7 @@ void SCR_UpdateScreen (void)
 
 	GL_Set2D ();
 
-	//
-	// draw any areas not covered by the refresh
-	//
+	//FIXME: only call this when needed
 	SCR_TileClear ();
 
 	if (scr_drawdialog) //new game confirm

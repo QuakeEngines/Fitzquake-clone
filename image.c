@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -22,6 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
+char loadfilename[MAX_OSPATH]; //file scope so that error messages can use it
+
 /*
 ============
 Image_LoadImage
@@ -33,16 +35,15 @@ TODO: search order: tga png jpg pcx lmp
 */
 byte *Image_LoadImage (char *name, int *width, int *height)
 {
-	char	filename[MAX_OSPATH];
 	FILE	*f;
 
-	sprintf (filename, "%s.tga", name);
-	COM_FOpenFile (filename, &f);
+	sprintf (loadfilename, "%s.tga", name);
+	COM_FOpenFile (loadfilename, &f);
 	if (f)
 		return Image_LoadTGA (f, width, height);
 
-	sprintf (filename, "%s.pcx", name);
-	COM_FOpenFile (filename, &f);
+	sprintf (loadfilename, "%s.pcx", name);
+	COM_FOpenFile (loadfilename, &f);
 	if (f)
 		return Image_LoadPCX (f, width, height);
 
@@ -113,13 +114,11 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	targa_header.pixel_size = fgetc(fin);
 	targa_header.attributes = fgetc(fin);
 
-	if (targa_header.image_type!=2 
-		&& targa_header.image_type!=10) 
-		Sys_Error ("LoadTGA: Only type 2 and 10 targa RGB images supported\n");
+	if (targa_header.image_type!=2 && targa_header.image_type!=10) 
+		Sys_Error ("Image_LoadTGA: %s is not a type 2 or type 10 targa\n", loadfilename);
 
-	if (targa_header.colormap_type !=0 
-		|| (targa_header.pixel_size!=32 && targa_header.pixel_size!=24))
-		Sys_Error ("Texture_LoadTGA: Only 32 or 24 bit images supported (no colormaps)\n");
+	if (targa_header.colormap_type !=0 || (targa_header.pixel_size!=32 && targa_header.pixel_size!=24))
+		Sys_Error ("Image_LoadTGA: %s is not a 24bit or 32bit targa\n", loadfilename);
 
 	columns = targa_header.width;
 	rows = targa_header.height;
@@ -130,66 +129,76 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	if (targa_header.id_length != 0)
 		fseek(fin, targa_header.id_length, SEEK_CUR);  // skip TARGA image comment
 	
-	if (targa_header.image_type==2) {  // Uncompressed, RGB images
-		for(row=rows-1; row>=0; row--) {
+	if (targa_header.image_type==2) // Uncompressed, RGB images
+	{
+		for(row=rows-1; row>=0; row--)
+		{
 			pixbuf = targa_rgba + row*columns*4;
-			for(column=0; column<columns; column++) {
+			for(column=0; column<columns; column++)
+			{
 				unsigned char red,green,blue,alphabyte;
-				switch (targa_header.pixel_size) {
+				switch (targa_header.pixel_size)
+				{
+				case 24:
+						blue = getc(fin);
+						green = getc(fin);
+						red = getc(fin);
+						*pixbuf++ = red;
+						*pixbuf++ = green;
+						*pixbuf++ = blue;
+						*pixbuf++ = 255;
+						break;
+				case 32:
+						blue = getc(fin);
+						green = getc(fin);
+						red = getc(fin);
+						alphabyte = getc(fin);
+						*pixbuf++ = red;
+						*pixbuf++ = green;
+						*pixbuf++ = blue;
+						*pixbuf++ = alphabyte;
+						break;
+				}
+			}
+		}
+	}
+	else if (targa_header.image_type==10) // Runlength encoded RGB images
+	{
+		unsigned char red,green,blue,alphabyte,packetHeader,packetSize,j;
+		for(row=rows-1; row>=0; row--)
+		{
+			pixbuf = targa_rgba + row*columns*4;
+			for(column=0; column<columns; )
+			{
+				packetHeader=getc(fin);
+				packetSize = 1 + (packetHeader & 0x7f);
+				if (packetHeader & 0x80) // run-length packet
+				{
+					switch (targa_header.pixel_size)
+					{
 					case 24:
-							
 							blue = getc(fin);
 							green = getc(fin);
 							red = getc(fin);
-							*pixbuf++ = red;
-							*pixbuf++ = green;
-							*pixbuf++ = blue;
-							*pixbuf++ = 255;
+							alphabyte = 255;
 							break;
 					case 32:
 							blue = getc(fin);
 							green = getc(fin);
 							red = getc(fin);
 							alphabyte = getc(fin);
-							*pixbuf++ = red;
-							*pixbuf++ = green;
-							*pixbuf++ = blue;
-							*pixbuf++ = alphabyte;
 							break;
-				}
-			}
-		}
-	}
-	else if (targa_header.image_type==10) {   // Runlength encoded RGB images
-		unsigned char red,green,blue,alphabyte,packetHeader,packetSize,j;
-		for(row=rows-1; row>=0; row--) {
-			pixbuf = targa_rgba + row*columns*4;
-			for(column=0; column<columns; ) {
-				packetHeader=getc(fin);
-				packetSize = 1 + (packetHeader & 0x7f);
-				if (packetHeader & 0x80) {        // run-length packet
-					switch (targa_header.pixel_size) {
-						case 24:
-								blue = getc(fin);
-								green = getc(fin);
-								red = getc(fin);
-								alphabyte = 255;
-								break;
-						case 32:
-								blue = getc(fin);
-								green = getc(fin);
-								red = getc(fin);
-								alphabyte = getc(fin);
-								break;
 					}
 	
-					for(j=0;j<packetSize;j++) {
+					for(j=0;j<packetSize;j++)
+					{
 						*pixbuf++=red;
 						*pixbuf++=green;
 						*pixbuf++=blue;
 						*pixbuf++=alphabyte;
 						column++;
-						if (column==columns) { // run spans across rows
+						if (column==columns) // run spans across rows
+						{
 							column=0;
 							if (row>0)
 								row--;
@@ -199,31 +208,35 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 						}
 					}
 				}
-				else {                            // non run-length packet
-					for(j=0;j<packetSize;j++) {
-						switch (targa_header.pixel_size) {
-							case 24:
-									blue = getc(fin);
-									green = getc(fin);
-									red = getc(fin);
-									*pixbuf++ = red;
-									*pixbuf++ = green;
-									*pixbuf++ = blue;
-									*pixbuf++ = 255;
-									break;
-							case 32:
-									blue = getc(fin);
-									green = getc(fin);
-									red = getc(fin);
-									alphabyte = getc(fin);
-									*pixbuf++ = red;
-									*pixbuf++ = green;
-									*pixbuf++ = blue;
-									*pixbuf++ = alphabyte;
-									break;
+				else // non run-length packet
+				{
+					for(j=0;j<packetSize;j++)
+					{
+						switch (targa_header.pixel_size)
+						{
+						case 24:
+								blue = getc(fin);
+								green = getc(fin);
+								red = getc(fin);
+								*pixbuf++ = red;
+								*pixbuf++ = green;
+								*pixbuf++ = blue;
+								*pixbuf++ = 255;
+								break;
+						case 32:
+								blue = getc(fin);
+								green = getc(fin);
+								red = getc(fin);
+								alphabyte = getc(fin);
+								*pixbuf++ = red;
+								*pixbuf++ = green;
+								*pixbuf++ = blue;
+								*pixbuf++ = alphabyte;
+								break;
 						}
 						column++;
-						if (column==columns) { // pixel packet run spans across rows
+						if (column==columns) // pixel packet run spans across rows
+						{
 							column=0;
 							if (row>0)
 								row--;
@@ -293,7 +306,7 @@ byte *Image_LoadPCX (FILE *f, int *width, int *height)
 		|| pcx->bits_per_pixel != 8
 		|| pcx->xmax >= 320
 		|| pcx->ymax >= 256)
-		Sys_Error ("Bad pcx file\n");
+		Sys_Error ("Image_LoadPCX: bad pcx file: %s\n", loadfilename);
 
 	// seek to palette
 	fseek (f, -768, SEEK_END);

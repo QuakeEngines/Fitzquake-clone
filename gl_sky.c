@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -32,15 +32,15 @@ extern	int rs_skypasses; //for r_speeds readout
 float	skyflatcolor[3];
 float	skymins[2][6], skymaxs[2][6];
 
-char		skybox_name[32] = ""; //name of current skybox, or "" if no skybox
+char	skybox_name[32] = ""; //name of current skybox, or "" if no skybox
 
 gltexture_t	*skybox_textures[6];
 gltexture_t	*solidskytexture, *alphaskytexture;
 
-extern cvar_t r_drawflat;
 extern cvar_t gl_farclip;
 cvar_t r_fastsky = {"r_fastsky", "0"};
 cvar_t r_sky_quality = {"r_sky_quality", "12"};
+cvar_t r_skyalpha = {"r_skyalpha", "1"};
 
 int		skytexorder[6] = {0,2,1,3,4,5}; //for skybox
 
@@ -102,7 +102,7 @@ void Sky_LoadTexture (texture_t *mt)
 			data[(i*128) + j] = src[i*256 + j + 128];
 
 	sprintf(texturename, "%s_back", mt->name);
-	solidskytexture = TexMgr_LoadImage8 (texturename, 128, 128, data, 0);
+	solidskytexture = TexMgr_LoadImage8 (loadmodel, texturename, 128, 128, data, TEXPREF_NONE);
 
 // extract front layer and upload
 	for (i=0 ; i<128 ; i++)
@@ -114,7 +114,7 @@ void Sky_LoadTexture (texture_t *mt)
 		}
 
 	sprintf(texturename, "%s_front", mt->name);
-	alphaskytexture = TexMgr_LoadImage8 (texturename, 128, 128, data, TEXPREF_ALPHA);
+	alphaskytexture = TexMgr_LoadImage8 (loadmodel, texturename, 128, 128, data, TEXPREF_ALPHA);
 
 // calculate r_fastsky color based on average of all opaque foreground colors
 	r = g = b = count = 0;
@@ -172,7 +172,7 @@ void Sky_LoadSkyBox (char *name)
 		sprintf (filename, "gfx/env/%s%s", name, suf[i]);
 		data = Image_LoadImage (filename, &width, &height);
 		if (data)
-			skybox_textures[i] = TexMgr_LoadImage32 (filename, width, height, (unsigned *)data, 0);
+			skybox_textures[i] = TexMgr_LoadImage32 (cl.worldmodel, filename, width, height, (unsigned *)data, TEXPREF_NONE);
 		else
 		{
 			Con_Printf ("Couldn't load %s\n", filename);
@@ -206,12 +206,13 @@ void Sky_NewMap (void)
 
 	data = cl.worldmodel->entities;
 	if (!data)
-		return;
+		return; //FIXME: how could this possibly ever happen? -- if there's no
+	// worldspawn then the sever wouldn't send the loadmap message to the client
 
 	data = COM_Parse(data);
-	if (!data)
+	if (!data) //should never happen
 		return; // error
-	if (com_token[0] != '{')
+	if (com_token[0] != '{') //should never happen
 		return; // error
 	while (1)
 	{
@@ -272,6 +273,7 @@ void Sky_Init (void)
 {
 	Cvar_RegisterVariable (&r_fastsky, NULL);
 	Cvar_RegisterVariable (&r_sky_quality, NULL);
+	Cvar_RegisterVariable (&r_skyalpha, NULL);
 
 	Cmd_AddCommand ("sky",Sky_SkyCommand_f);
 }
@@ -460,33 +462,18 @@ void Sky_ClipPoly (int nump, vec3_t vecs, int stage)
 Sky_ProcessPoly
 ================
 */
-void Sky_ProcessPoly (msurface_t *s)
+void Sky_ProcessPoly (glpoly_t	*p)
 {
 	int			i;
 	float		*v;
-	glpoly_t	*p;
 	vec3_t		verts[MAX_CLIP_VERTS];
 
-	p = s->polys;
-
-	//set drawflat color if appropriate
-	if (r_drawflat.value)
-	{
-		srand((unsigned int) p);
-		glColor3f (rand()%256/255.0, rand()%256/255.0, rand()%256/255.0);
-	}
-
 	//draw it
-	glBegin (GL_POLYGON);
-	for (i=0,v=p->verts[0] ; i<p->numverts ; i++, v+=VERTEXSIZE)
-		glVertex3fv (v);
-	glEnd ();
-
-	rs_brushpolys++; //johnfitz
-	rs_brushpasses++; //johnfitz
+	DrawGLPoly(p);
+	rs_brushpasses++;
 
 	//update sky bounds
-	if (!r_fastsky.value && !r_drawflat.value)
+	if (!r_fastsky.value)
 	{
 		for (i=0 ; i<p->numverts ; i++)
 			VectorSubtract (p->verts[i], r_origin, verts[i]);
@@ -495,183 +482,27 @@ void Sky_ProcessPoly (msurface_t *s)
 }
 
 /*
-=================
-Sky_ProcessBrushModel
-=================
-*/
-void Sky_ProcessBrushModel (entity_t *e)
-{
-	int			j, k;
-	vec3_t		mins, maxs;
-	int			i, numsurfaces;
-	msurface_t	*psurf;
-	float		dot;
-	mplane_t	*pplane;
-	model_t		*clmodel;
-	qboolean	rotated;
-
-	currententity = e;
-	clmodel = e->model;
-
-	if (clmodel == cl.worldmodel) //does this ever happen?
-		return;
-
-//	if (r_speeds.value)
-//		Con_Printf ("bmodel in view\n"); //TEST
-
-	if (e->angles[0] || e->angles[1] || e->angles[2])
-	{
-		rotated = true;
-		for (i=0 ; i<3 ; i++)
-		{
-			mins[i] = e->origin[i] - clmodel->radius;
-			maxs[i] = e->origin[i] + clmodel->radius;
-		}
-	}
-	else
-	{
-		rotated = false;
-		VectorAdd (e->origin, clmodel->mins, mins);
-		VectorAdd (e->origin, clmodel->maxs, maxs);
-	}
-
-	if (R_CullBox (mins, maxs))
-		return;
-
-	//memset (lightmap_polys, 0, sizeof(lightmap_polys));
-
-	VectorSubtract (r_refdef.vieworg, e->origin, modelorg);
-	if (rotated)
-	{
-		vec3_t	temp;
-		vec3_t	forward, right, up;
-
-		VectorCopy (modelorg, temp);
-		AngleVectors (e->angles, forward, right, up);
-		modelorg[0] = DotProduct (temp, forward);
-		modelorg[1] = -DotProduct (temp, right);
-		modelorg[2] = DotProduct (temp, up);
-	}
-
-	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
-
-	glPushMatrix ();
-	e->angles[0] = -e->angles[0];	// stupid quake bug
-	R_RotateForEntity (e);
-	e->angles[0] = -e->angles[0];	// stupid quake bug
-
-	//
-	// draw texture
-	//
-	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
-	{
-		// find which side of the node we are on
-		pplane = psurf->plane;
-		dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
-
-		// draw the polygon
-		if (psurf->flags & SURF_DRAWSKY) 
-			if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) || (!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
-				Sky_ProcessPoly (psurf);
-	}
-
-	glPopMatrix ();
-}
-
-/*
 ================
-Sky_ProcessWorld
+Sky_ProcessTextureChains -- handles sky polys in world model
 ================
 */
-void Sky_ProcessWorld (mnode_t *node)
+void Sky_ProcessTextureChains (void)
 {
-	int			i, c, side, *pindex;
-	vec3_t		acceptpt, rejectpt;
-	mplane_t	*plane;
-	msurface_t	*surf, **mark;
-	mleaf_t		*pleaf;
-	double		d, dot;
-	vec3_t		mins, maxs;
+	int			i;
+	msurface_t	*s;
+	texture_t	*t;
 
-	if (node->contents == CONTENTS_SOLID)
-		return; //solid
-	if (node->visframe != r_visframecount)
-		return; //not in PVS
-	if (R_CullBox (node->minmaxs, node->minmaxs+3))
-		return; //not in frustum
-	
-	// if a leaf node, draw stuff
-	if (node->contents < 0)
+	for (i=0 ; i<cl.worldmodel->numtextures ; i++)
 	{
-		pleaf = (mleaf_t *)node;
-		mark = pleaf->firstmarksurface;
-		c = pleaf->nummarksurfaces;
-		if (c)
-		{
-			do
-			{
-				(*mark)->visframe = r_framecount;
-				mark++;
-			} while (--c);
-		}
-		return;
+		t = cl.worldmodel->textures[i];
+
+		if (!t || !t->texturechain || !(t->texturechain->flags & SURF_DRAWSKY))
+			continue;
+
+		for (s = t->texturechain; s; s = s->texturechain)
+			if (!s->culled)
+				Sky_ProcessPoly (s->polys);
 	}
-
-	// node is just a decision point, so go down the apropriate sides
-
-	// find which side of the node we are on
-	plane = node->plane;
-
-	switch (plane->type)
-	{
-	case PLANE_X:
-		dot = modelorg[0] - plane->dist;
-		break;
-	case PLANE_Y:
-		dot = modelorg[1] - plane->dist;
-		break;
-	case PLANE_Z:
-		dot = modelorg[2] - plane->dist;
-		break;
-	default:
-		dot = DotProduct (modelorg, plane->normal) - plane->dist;
-		break;
-	}
-
-	if (dot >= 0)
-		side = 0;
-	else
-		side = 1;
-
-	// recurse down the children, front side first
-	Sky_ProcessWorld (node->children[side]);
-
-	// draw stuff
-	c = node->numsurfaces;
-	if (c)
-	{
-		surf = cl.worldmodel->surfaces + node->firstsurface;
-
-		if (dot < 0 -BACKFACE_EPSILON)
-			side = SURF_PLANEBACK;
-		else if (dot > BACKFACE_EPSILON)
-			side = 0;
-		{
-			for ( ; c ; c--, surf++)
-			{
-				if (surf->flags & SURF_DRAWSKY && surf->visframe == r_framecount)
-				{
-					if ( (dot < 0) ^ !!(surf->flags & SURF_PLANEBACK))
-						continue; // backface cull
-
-					Sky_ProcessPoly (surf);
-				}
-			}
-		}
-	}
-
-	// recurse down the back side
-	Sky_ProcessWorld (node->children[!side]);
 }
 
 //==============================================================================
@@ -689,6 +520,7 @@ void Sky_EmitSkyBoxVertex (float s, float t, int axis)
 {
 	vec3_t		v, b;
 	int			j, k;
+	float		w, h;
 
 	b[0] = s * gl_farclip.value / sqrt(3.0);
 	b[1] = t * gl_farclip.value / sqrt(3.0);
@@ -709,8 +541,10 @@ void Sky_EmitSkyBoxVertex (float s, float t, int axis)
 	t = (t+1)*0.5;
 
 	// avoid bilerp seam
-	s = s * 510.0/512 + 1.0/512;
-	t = t * 510.0/512 + 1.0/512;
+	w = skybox_textures[skytexorder[axis]]->width;
+	h = skybox_textures[skytexorder[axis]]->height;
+	s = s * (w-1)/w + 0.5/w;
+	t = t * (h-1)/h + 0.5/h;
 
 	t = 1.0 - t;
 	glTexCoord2f (s, t);
@@ -721,7 +555,7 @@ void Sky_EmitSkyBoxVertex (float s, float t, int axis)
 ==============
 Sky_DrawSkyBox
 
-TODO: eliminate cracks by adding an extra vert on tjuncs
+FIXME: eliminate cracks by adding an extra vert on tjuncs
 ==============
 */
 void Sky_DrawSkyBox (void)
@@ -737,7 +571,7 @@ void Sky_DrawSkyBox (void)
 
 		GL_Bind (skybox_textures[skytexorder[i]]);
 
-#if 1 //TEST
+#if 1 //this is to avoid tjunctions until i can do it the right way
 		skymins[0][i] = -1;
 		skymins[1][i] = -1;
 		skymaxs[0][i] = 1;
@@ -760,6 +594,31 @@ void Sky_DrawSkyBox (void)
 //  RENDER CLOUDS
 //
 //==============================================================================
+
+/*
+==============
+Sky_SetBoxVert
+==============
+*/
+void Sky_SetBoxVert (float s, float t, int axis, vec3_t v)
+{
+	vec3_t		b;
+	int			j, k;
+
+	b[0] = s * gl_farclip.value / sqrt(3.0);
+	b[1] = t * gl_farclip.value / sqrt(3.0);
+	b[2] = gl_farclip.value / sqrt(3.0);
+
+	for (j=0 ; j<3 ; j++)
+	{
+		k = st_to_vec[axis][j];
+		if (k < 0)
+			v[j] = -b[-k - 1];
+		else
+			v[j] = b[k - 1];
+		v[j] += r_origin[j];
+	}
+}
 
 /*
 =============
@@ -796,11 +655,11 @@ void Sky_DrawFaceQuad (glpoly_t *p)
 	float	*v;
 	int		i;
 
-	if (gl_mtexable)
+	if (gl_mtexable && r_skyalpha.value >= 1.0)
 	{
 		GL_DisableMultitexture(); // selects TEXTURE0
 		GL_Bind (solidskytexture);
-		GL_EnableMultitexture(); // selects TEXTURE1 
+		GL_EnableMultitexture(); // selects TEXTURE1
 		GL_Bind (alphaskytexture);
 		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
 		glEnable(GL_BLEND);
@@ -826,6 +685,9 @@ void Sky_DrawFaceQuad (glpoly_t *p)
 	{
 		GL_Bind (solidskytexture);
 
+		if (r_skyalpha.value < 1.0)
+			glColor3f (1, 1, 1);
+
 		glBegin (GL_QUADS);
 		for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
 		{
@@ -837,6 +699,9 @@ void Sky_DrawFaceQuad (glpoly_t *p)
 
 		GL_Bind (alphaskytexture);
 		glEnable (GL_BLEND);
+
+		if (r_skyalpha.value < 1.0)
+			glColor4f (1, 1, 1, r_skyalpha.value);
 
 		glBegin (GL_QUADS);
 		for (i=0, v=p->verts[0] ; i<4 ; i++, v+=VERTEXSIZE)
@@ -851,31 +716,6 @@ void Sky_DrawFaceQuad (glpoly_t *p)
 
 		rs_skypolys++;
 		rs_skypasses += 2;
-	}
-}
-
-/*
-==============
-Sky_SetBoxVert
-==============
-*/
-void Sky_SetBoxVert (float s, float t, int axis, vec3_t v)
-{
-	vec3_t		b;
-	int			j, k;
-
-	b[0] = s * gl_farclip.value / sqrt(3.0);
-	b[1] = t * gl_farclip.value / sqrt(3.0);
-	b[2] = gl_farclip.value / sqrt(3.0);
-
-	for (j=0 ; j<3 ; j++)
-	{
-		k = st_to_vec[axis][j];
-		if (k < 0)
-			v[j] = -b[-k - 1];
-		else
-			v[j] = b[k - 1];
-		v[j] += r_origin[j];
 	}
 }
 
@@ -946,8 +786,6 @@ called once per frame before drawing anything else
 */
 void Sky_DrawSky (void)
 {
-	extern int		ztrickframe;
-	extern cvar_t	gl_ztrick;
 	int				i;
 
 	//
@@ -967,38 +805,37 @@ void Sky_DrawSky (void)
 	Fog_DisableGFog ();
 	Fog_SetColorForSky ();
 
-	Sky_ProcessWorld (cl.worldmodel->nodes);
-//	for (i=0 ; i<cl_numvisedicts ; i++)
-//		if (cl_visedicts[i]->model->type == mod_brush)
-//			Sky_ProcessBrushModel (cl_visedicts[i]);
+	Sky_ProcessTextureChains ();
+	//FIXME: need to also handle sky surfs on bmodels
 	
 	glEnable (GL_TEXTURE_2D);
 	glColor3f (1, 1, 1);
 	Fog_EnableGFog ();
 
 	//
-	// render slow sky: cloud layers and/or skybox
+	// render slow sky: cloud layers or skybox
 	//
-	if (!r_fastsky.value && !r_drawflat.value && Fog_GetDensity() <= 0)
+	if (!r_fastsky.value && Fog_GetDensity() <= 0)
 	{
-		if (gl_ztrick.value && !(ztrickframe & 1))
-			glDepthFunc(GL_LEQUAL);
-		else
-			glDepthFunc(GL_GEQUAL);
+		glDepthFunc(GL_GEQUAL);
 		glDepthMask(0);
 
 		if (skybox_name[0])
 			Sky_DrawSkyBox ();
 		else
 		{
+			if (r_skyalpha.value < 1.0)
+				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
 			for (i=0 ; i<6 ; i++)
 				if (skymins[0][i] < skymaxs[0][i] && skymins[1][i] < skymaxs[1][i])
 					Sky_DrawFace (i);
+
+			if (r_skyalpha.value < 1.0)
+				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 		}
-		if (gl_ztrick.value && !(ztrickframe & 1))
-			glDepthFunc(GL_GEQUAL);
-		else
-			glDepthFunc(GL_LEQUAL);
+
 		glDepthMask(1);
+		glDepthFunc(GL_LEQUAL);
 	}
 }

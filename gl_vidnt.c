@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -25,7 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "resource.h"
 #include <commctrl.h>
 
-#define MAX_MODE_LIST	30
+#define MAX_MODE_LIST	80 //johnfitz -- was 30
 #define VID_ROW_SIZE	3
 #define WARP_WIDTH		320
 #define WARP_HEIGHT		200
@@ -66,6 +66,7 @@ const char *gl_vendor;
 const char *gl_renderer;
 const char *gl_version;
 const char *gl_extensions;
+const char *wgl_extensions; //johnfitz
 
 qboolean		DDActive;
 qboolean		scr_skipupdate;
@@ -102,16 +103,12 @@ HDC		maindc;
 
 glvert_t glv;
 
-cvar_t	gl_ztrick = {"gl_ztrick","1"};
-
 HWND WINAPI InitializeWindow (HINSTANCE hInstance, int nCmdShow);
 
 viddef_t	vid;				// global video state
 
 unsigned short	d_8to16table[256];
 //unsigned char d_15to8table[65536]; //johnfitz -- never used
-
-float		gldepthmin, gldepthmax;
 
 modestate_t	modestate = MS_UNINIT;
 
@@ -136,17 +133,16 @@ typedef void (APIENTRY *lp3DFXFUNC) (int, int, int, int, int, const void*);
 qboolean isPermedia = false;
 qboolean gl_mtexable = false;
 qboolean gl_texture_env_combine = false; //johnfitz
+qboolean gl_pbuffers = true; //johnfitz
 
-int		gl_stencilbits; //johnfitz
+int			gl_stencilbits; //johnfitz 
 
 //====================================
 
 cvar_t		vid_gamma = {"gamma", "1", true}; //johnfitz -- moved here from view.c
 
-cvar_t		vid_mode = {"vid_mode","0", false};
-// Note that 0 is MODE_WINDOWED
-cvar_t		_vid_default_mode = {"_vid_default_mode","0", true};
-// Note that 3 is MODE_FULLSCREEN_DEFAULT
+cvar_t		vid_mode = {"vid_mode","0", false}; // Note that 0 is MODE_WINDOWED
+cvar_t		_vid_default_mode = {"_vid_default_mode","0", true}; // Note that 3 is MODE_FULLSCREEN_DEFAULT
 cvar_t		_vid_default_mode_win = {"_vid_default_mode_win","3", true};
 cvar_t		vid_wait = {"vid_wait","0"};
 cvar_t		vid_nopageflip = {"vid_nopageflip","0", true};
@@ -178,18 +174,44 @@ int vid_gammaworks, vid_3dfxgamma;
 
 /*
 ================
+VID_Gamma_SetGamma -- apply gamma correction
+================
+*/
+void VID_Gamma_SetGamma (void)
+{
+	if (vid_gammaworks)
+		if (SetDeviceGammaRamp(maindc, vid_gammaramp) == false)
+			Con_Printf ("VID_Gamma_SetGamma: failed on SetDeviceGammaRamp\n");
+
+	if (vid_3dfxgamma)
+		if (wglSetDeviceGammaRamp3DFX(maindc, vid_gammaramp) == false)
+			Con_Printf ("VID_Gamma_SetGamma: failed on wglSetDeviceGammaRamp3DFX\n");
+}
+
+/*
+================
+VID_Gamma_Restore -- restore system gamma
+================
+*/
+void VID_Gamma_Restore (void)
+{
+	if (vid_gammaworks)
+		if (SetDeviceGammaRamp(maindc, vid_systemgammaramp) == false)
+			Con_Printf ("VID_Gamma_Restore: failed on SetDeviceGammaRamp\n");
+
+	if (vid_3dfxgamma)
+		if (wglSetDeviceGammaRamp3DFX(maindc, vid_3dfxgammaramp) == false)
+			Con_Printf ("VID_Gamma_Restore: failed on wglSetDeviceGammaRamp3DFX\n");
+}
+
+/*
+================
 VID_Gamma_Shutdown -- called on exit
 ================
 */
 void VID_Gamma_Shutdown (void)
 {
-	if (vid_gammaworks)
-		if (SetDeviceGammaRamp(maindc, vid_systemgammaramp) == false)
-			Con_Printf ("VID_Gamma_Shutdown: failed on SetDeviceGammaRamp\n");
-
-	if (vid_3dfxgamma)
-		if (wglSetDeviceGammaRamp3DFX(maindc, vid_3dfxgammaramp) == false)
-			Con_Printf ("VID_Gamma_Shutdown: failed on wglSetDeviceGammaRamp3DFX\n");
+	VID_Gamma_Restore ();
 }
 
 /*
@@ -211,13 +233,7 @@ void VID_Gamma_f (void)
 		vid_gammaramp[i] = vid_gammaramp[i+256] = vid_gammaramp[i+512] = 
 			CLAMP(0, (int) (255 * pow ((i+0.5)/255.5, vid_gamma.value) + 0.5), 255) << 8;
 
-	if (vid_gammaworks)
-		if (SetDeviceGammaRamp(maindc, vid_gammaramp) == false)
-			Con_Printf ("VID_SetGamma: failed on SetDeviceGammaRamp\n");
-
-	if (vid_3dfxgamma)
-		if (wglSetDeviceGammaRamp3DFX(maindc, vid_gammaramp) == false)
-			Con_Printf ("VID_SetGamma: failed on wglSetDeviceGammaRamp3DFX\n");
+	VID_Gamma_SetGamma ();
 }
 
 /*
@@ -229,10 +245,6 @@ void VID_Gamma_Init (void)
 {
 	vid_gammaworks = vid_3dfxgamma = false;
 
-	//don't use hardware gamma if command line gamma is requested
-	if (COM_CheckParm("-gamma"))
-		return;
-
 	if (strstr(gl_extensions, "WGL_3DFX_gamma_control"))
 	{
 		wglSetDeviceGammaRamp3DFX = (RAMPFUNC) wglGetProcAddress("wglSetDeviceGammaRamp3DFX");
@@ -241,13 +253,13 @@ void VID_Gamma_Init (void)
 		if (wglGetDeviceGammaRamp3DFX (maindc, vid_3dfxgammaramp))
 			vid_3dfxgamma = true;
 		
-		Con_Printf ("WGL_3DFX_gamma_control found.\n");
+		Con_Printf ("WGL_3DFX_gamma_control found\n");
 	}
 
 	if (GetDeviceGammaRamp (maindc, vid_systemgammaramp))
 		vid_gammaworks = true;
 	
-	Cvar_RegisterVariable (&vid_gamma, VID_Gamma_f); //johnfitz
+	Cvar_RegisterVariable (&vid_gamma, VID_Gamma_f);
 }
 
 //==========================================================================
@@ -558,7 +570,7 @@ int VID_SetMode (int modenum)
 	ClearAllStates ();
 
 	if (!msg_suppress_1)
-		Con_SafePrintf ("Video mode %s initialized.\n", VID_GetModeDescription (vid_modenum));
+		Con_SafePrintf ("Video mode %s initialized\n", VID_GetModeDescription (vid_modenum));
 
 	vid.recalc_refdef = 1;
 
@@ -593,41 +605,55 @@ void VID_UpdateWindowStatus (void)
 
 /*
 ===============
+GL_MakeNiceExtensionsList -- johnfitz
+===============
+*/
+char *GL_MakeNiceExtensionsList (const char *in)
+{
+	char *copy, *token, *out;
+	int i, count;
+
+	//each space will be replaced by 4 chars, so count the spaces before we malloc
+	for (i = 0, count = 1; i < strlen(in); i++)
+		if (in[i] == ' ')
+			count++;
+	out = Z_Malloc (strlen(in) + count*3 + 1); //usually about 1k
+	out[0] = 0;
+
+	copy = Z_Malloc(strlen(in) + 1);
+	strcpy(copy, in);
+
+	for (token = strtok(copy, " "); token; token = strtok(NULL, " "))
+	{
+		strcat(out, "\n   ");
+		strcat(out, token);
+	}
+
+	Z_Free (copy);
+	return out;
+}
+
+/*
+===============
 GL_Info_f -- johnfitz
 ===============
 */
 void GL_Info_f (void)
 {
 	static char *gl_extensions_nice = NULL;
+	static char *wgl_extensions_nice = NULL;
 
 	if (!gl_extensions_nice)
-	{
-		char *gl_extensions_copy, *token;
-		int i, count;
-
-		//each space will be replaced by 4 chars, so count the spaces before we malloc
-		for (i = 0, count = 1; i < strlen(gl_extensions); i++)
-			if (gl_extensions[i] == ' ')
-				count++;
-		gl_extensions_nice = Z_Malloc (strlen(gl_extensions) + count*3 + 1); //usually about 1k
-		gl_extensions_nice[0] = 0;
-
-		gl_extensions_copy = Z_Malloc(strlen(gl_extensions) + 1);
-		strcpy(gl_extensions_copy, gl_extensions);
-
-		for (token = strtok(gl_extensions_copy, " "); token; token = strtok(NULL, " "))
-		{
-			strcat(gl_extensions_nice, "\n   ");
-			strcat(gl_extensions_nice, token);
-		}
-
-		Z_Free (gl_extensions_copy);
-	}
+		gl_extensions_nice = GL_MakeNiceExtensionsList (gl_extensions);
+	
+	if (!wgl_extensions_nice)
+		wgl_extensions_nice = GL_MakeNiceExtensionsList (wgl_extensions);
 
 	Con_SafePrintf ("GL_VENDOR: %s\n", gl_vendor);
 	Con_SafePrintf ("GL_RENDERER: %s\n", gl_renderer);
 	Con_SafePrintf ("GL_VERSION: %s\n", gl_version);
 	Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions_nice);
+	Con_Printf ("WGL_EXTENSIONS: %s\n", wgl_extensions_nice);
 }
 
 /*
@@ -673,11 +699,11 @@ CheckMultitextureExtensions -- johnfitz -- rewritten
 void CheckMultitextureExtensions (void) 
 {
 	if (COM_CheckParm("-nomtex"))
-		Con_Printf ("WARNING: Mutitexture disabled at command line.\n");
+		Con_Printf ("WARNING: Mutitexture disabled at command line\n");
 	else
 		if (strstr(gl_extensions, "GL_ARB_multitexture"))
 		{
-			Con_Printf("GL_ARB_multitexture found.\n");
+			Con_Printf("GL_ARB_multitexture found\n");
 			GL_MTexCoord2fFunc = (void *) wglGetProcAddress("glMultiTexCoord2fARB");
 			GL_SelectTextureFunc = (void *) wglGetProcAddress("glActiveTextureARB");
 			TEXTURE0 = GL_TEXTURE0_ARB;
@@ -687,7 +713,7 @@ void CheckMultitextureExtensions (void)
 		else
 			if (strstr(gl_extensions, "GL_SGIS_multitexture"))
 			{
-				Con_Printf("GL_SGIS_multitexture found.\n");
+				Con_Printf("GL_SGIS_multitexture found\n");
 				GL_MTexCoord2fFunc = (void *) wglGetProcAddress("glMTexCoord2fSGIS");
 				GL_SelectTextureFunc = (void *) wglGetProcAddress("glSelectTextureSGIS");
 				TEXTURE0 = TEXTURE0_SGIS;
@@ -695,7 +721,7 @@ void CheckMultitextureExtensions (void)
 				gl_mtexable = true;
 			}
 			else
-				Con_Printf ("WARNING: Multitexture not supported.\n");
+				Con_Printf ("WARNING: Multitexture not supported\n");
 }
 
 /*
@@ -706,21 +732,39 @@ CheckCombineExtensions -- johnfitz
 void CheckCombineExtensions (void) 
 {
 	if (COM_CheckParm("-nocombine"))
-		Con_Printf ("WARNING: texture_env_combine disabled at command line.\n");
+		Con_Printf ("WARNING: texture_env_combine disabled at command line\n");
 	else
 		if (strstr(gl_extensions, "GL_ARB_texture_env_combine"))
 		{
 			gl_texture_env_combine = true;
-			Con_Printf("GL_ARB_texture_env_combine found.\n");
+			Con_Printf("GL_ARB_texture_env_combine found\n");
 		}
 		else
 			if (strstr(gl_extensions, "GL_EXT_texture_env_combine"))
 			{
 				gl_texture_env_combine = true;
-				Con_Printf("GL_EXT_texture_env_combine found.\n");
+				Con_Printf("GL_EXT_texture_env_combine found\n");
 			}
 			else
-				Con_Printf ("WARNING: texture_env_combine not supported.\n");
+				Con_Printf ("WARNING: texture_env_combine not supported\n");
+}
+
+/*
+===============
+GetWGLExtensions -- johnfitz
+===============
+*/
+void GetWGLExtensions (void)
+{
+	const char *(*wglGetExtensionsStringARB) (HDC hdc);
+	const char *(*wglGetExtensionsStringEXT) ();
+
+	if (wglGetExtensionsStringARB = (void *) wglGetProcAddress ("wglGetExtensionsStringARB"))
+		wgl_extensions = wglGetExtensionsStringARB (maindc);
+	else if (wglGetExtensionsStringEXT = (void *) wglGetProcAddress ("wglGetExtensionsStringEXT"))
+		wgl_extensions = wglGetExtensionsStringEXT ();
+	else
+		wgl_extensions = "";
 }
 
 /*
@@ -744,11 +788,11 @@ void GL_Init (void)
          isPermedia = true;
 
 	CheckMultitextureExtensions ();
-	CheckCombineExtensions ();
+	CheckCombineExtensions (); //johnfitz
+	GetWGLExtensions (); //johnfitz
 
-#if 0
+#ifdef USE_STENCIL
 	//johnfitz -- confirm presence of stencil buffer
-	//FIXME: move to gl_vidnt.c
 	glGetIntegerv(GL_STENCIL_BITS, &gl_stencilbits);
 	if(!gl_stencilbits)
 		Con_Printf ("WARNING: Could not create stencil buffer\n");
@@ -767,7 +811,8 @@ void GL_Init (void)
 #endif
 
 	glClearColor (0.15,0.15,0.15,0); //johnfitz -- originally 1,0,0,0
-	glCullFace(GL_FRONT);
+	glCullFace(GL_BACK); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
+	glFrontFace(GL_CW); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_ALPHA_TEST);
 	glAlphaFunc(GL_GREATER, 0.666);
@@ -780,17 +825,17 @@ void GL_Init (void)
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glDepthRange (0, 1); //johnfitz -- moved here becuase gl_ztrick is gone.
+	glDepthFunc (GL_LEQUAL); //johnfitz -- moved here becuase gl_ztrick is gone.
 }
 
 /*
 =================
-GL_BeginRendering
+GL_BeginRendering -- sets values of glx, gly, glwidth, glheight
 =================
 */
 void GL_BeginRendering (int *x, int *y, int *width, int *height)
 {
-	extern cvar_t gl_clear;
-
 	*x = *y = 0;
 	*width = WindowRect.right - WindowRect.left;
 	*height = WindowRect.bottom - WindowRect.top;
@@ -885,13 +930,15 @@ BOOL bSetupPixelFormat(HDC hDC)
 	0,						// shift bit ignored
 	0,						// no accumulation buffer
 	0, 0, 0, 0, 			// accum bits ignored
-#if 0
+
+#ifdef USE_STENCIL
 	24,						// johnfitz -- 24-bit z-buffer	
 	8,						// johnfitz -- 8-bit stencil buffer
 #else
 	32,						// johnfitz -- 32-bit z-buffer	
 	0,						// johnfitz -- no stencil buffer
 #endif
+
 	0,						// no auxiliary buffer
 	PFD_MAIN_PLANE,			// main layer
 	0,						// reserved
@@ -1100,6 +1147,7 @@ void AppActivate(BOOL fActive, BOOL minimize)
 			IN_ActivateMouse ();
 			IN_HideMouse ();
 		}
+		VID_Gamma_SetGamma (); //johnfitz
 	}
 
 	if (!fActive)
@@ -1118,6 +1166,7 @@ void AppActivate(BOOL fActive, BOOL minimize)
 			IN_DeactivateMouse ();
 			IN_ShowMouse ();
 		}
+		VID_Gamma_Restore (); //johnfitz
 	}
 }
 
@@ -1653,7 +1702,6 @@ void	VID_Init (void)
 	Cvar_RegisterVariable (&vid_config_y, NULL);
 	Cvar_RegisterVariable (&vid_stretch_by_2, NULL);
 	Cvar_RegisterVariable (&_windowed_mouse, NULL);
-	Cvar_RegisterVariable (&gl_ztrick, NULL);
 
 	Cmd_AddCommand ("vid_nummodes", VID_NumModes_f);
 	Cmd_AddCommand ("vid_describecurrentmode", VID_DescribeCurrentMode_f);
@@ -1891,8 +1939,8 @@ typedef struct
 	int		iscur;
 } modedesc_t;
 
-#define MAX_COLUMN_SIZE		9
-#define MODE_AREA_HEIGHT	(MAX_COLUMN_SIZE + 2)
+#define MAX_COLUMN_SIZE		12 //johnfitz -- was 9
+#define MODE_AREA_HEIGHT	(MAX_COLUMN_SIZE + 1) //johnfitz -- was + 2
 #define MAX_MODEDESCS		(MAX_COLUMN_SIZE*3)
 
 static modedesc_t	modedescs[MAX_MODEDESCS];

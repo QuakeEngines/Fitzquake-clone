@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -1649,7 +1649,10 @@ void M_Quit_Key (int key)
 
 void M_Quit_Draw (void) //johnfitz -- modified for new quit message
 {
-	char	ver[24];
+	char	msg1[40];
+	char	msg2[40];
+	char	msg3[40];
+	int		boxlen, y;
 
 	if (wasInMenus)
 	{
@@ -1659,11 +1662,21 @@ void M_Quit_Draw (void) //johnfitz -- modified for new quit message
 		m_state = m_quit;
 	}
 
-	sprintf(ver, "FitzQuake version %1.2f", FITZQUAKE_VERSION);
-	M_DrawTextBox (56, 76, 24, 4);
-	M_Print (72, 88, ver);
-	M_Print (84, 96, "by John Fitzgibbons");
-	M_PrintWhite (100, 104, "Press y to quit");
+	sprintf(msg1, "FitzQuake version %1.2f", (float)FITZQUAKE_VERSION);
+	sprintf(msg2, "by John Fitzgibbons");
+	sprintf(msg3, "Press y to quit");
+
+	//okay, this is kind of fucked up.  M_DrawTextBox will always act as if 
+	//width is even. Also, the width and lines values are for the interior of the box,
+	//but the x and y values include the border.
+	boxlen = max(strlen(msg1),max(strlen(msg2),strlen(msg3))) + 1;
+	if (boxlen & 1) boxlen++;
+	M_DrawTextBox	(160-4*(boxlen+2), 76, boxlen, 4);
+
+	//now do the text
+	M_Print			(160-4*strlen(msg1), 88, msg1);
+	M_Print			(160-4*strlen(msg2), 96, msg2);
+	M_PrintWhite	(160-4*strlen(msg3), 104, msg3);
 }
 
 //=============================================================================

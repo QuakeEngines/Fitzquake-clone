@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -448,7 +448,7 @@ void ED_Print (edict_t *ed)
 		return;
 	}
 
-	Con_Printf("\nEDICT %i:\n", NUM_FOR_EDICT(ed));
+	Con_SafePrintf("\nEDICT %i:\n", NUM_FOR_EDICT(ed)); //johnfitz -- was Con_Printf
 	for (i=1 ; i<progs->numfielddefs ; i++)
 	{
 		d = &pr_fielddefs[i];
@@ -467,12 +467,12 @@ void ED_Print (edict_t *ed)
 		if (j == type_size[type])
 			continue;
 	
-		Con_Printf ("%s",name);
+		Con_SafePrintf ("%s",name); //johnfitz -- was Con_Printf
 		l = strlen (name);
 		while (l++ < 15)
-			Con_Printf (" ");
+			Con_SafePrintf (" "); //johnfitz -- was Con_Printf
 
-		Con_Printf ("%s\n", PR_ValueString(d->type, (eval_t *)v));		
+		Con_SafePrintf ("%s\n", PR_ValueString(d->type, (eval_t *)v)); //johnfitz -- was Con_Printf
 	}
 }
 
@@ -870,16 +870,16 @@ if (!strcmp(com_token, "light"))
 		{
 			//johnfitz -- HACK -- suppress error becuase fog/sky fields might not be mentioned in defs.qc
 			if (strncmp(keyname, "sky", 3) && strcmp(keyname, "fog"))
-				Con_Printf ("'%s' is not a field\n", keyname);
+				Con_SafePrintf ("'%s' is not a field\n", keyname); //johnfitz -- was Con_Printf
 			continue;
 		}
 
-if (anglehack)
-{
-char	temp[32];
-strcpy (temp, com_token);
-sprintf (com_token, "0 %s 0", temp);
-}
+		if (anglehack)
+		{
+			char	temp[32];
+			strcpy (temp, com_token);
+			sprintf (com_token, "0 %s 0", temp);
+		}
 
 		if (!ED_ParseEpair ((void *)&ent->v, key, com_token))
 			Host_Error ("ED_ParseEdict: parse error");
@@ -957,7 +957,7 @@ void ED_LoadFromFile (char *data)
 //
 		if (!ent->v.classname)
 		{
-			Con_Printf ("No classname for:\n");
+			Con_SafePrintf ("No classname for:\n"); //johnfitz -- was Con_Printf
 			ED_Print (ent);
 			ED_Free (ent);
 			continue;
@@ -968,7 +968,7 @@ void ED_LoadFromFile (char *data)
 
 		if (!func)
 		{
-			Con_Printf ("No spawn function for:\n");
+			Con_SafePrintf ("No spawn function for:\n"); //johnfitz -- was Con_Printf
 			ED_Print (ent);
 			ED_Free (ent);
 			continue;

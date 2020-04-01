@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -68,21 +68,30 @@ extern void M_Menu_Main_f (void);
 /*
 ================
 Con_Quakebar -- johnfitz -- returns a bar of the desired length, but never wider than the console
+
+includes a newline, unless len >= con_linewidth.
 ================
 */
 char *Con_Quakebar (int len)
 {
-	static char bar[41];
+	static char bar[42];
 	int i;
 
-	len = min(len, sizeof(bar) - 1);
+	len = min(len, sizeof(bar) - 2);
 	len = min(len, con_linewidth);
 
 	bar[0] = '\35';
 	for (i = 1; i < len - 1; i++)
 		bar[i] = '\36';
 	bar[len-1] = '\37';
-	bar[len] = 0;
+
+	if (len < con_linewidth)
+	{
+		bar[len] = '\n';
+		bar[len+1] = 0;
+	}
+	else
+		bar[len] = 0;
 
 	return bar;
 }
@@ -94,6 +103,8 @@ Con_ToggleConsole_f
 */
 void Con_ToggleConsole_f (void)
 {
+	extern int history_line; //johnfitz
+
 	if (key_dest == key_console)
 	{
 		if (cls.state == ca_connected)
@@ -101,7 +112,8 @@ void Con_ToggleConsole_f (void)
 			key_dest = key_game;
 			key_lines[edit_line][1] = 0;	// clear any typing
 			key_linepos = 1;
-			con_backscroll = 0; //johnfitz -- toggleconsole should return you to the bottom of the scrollback
+			con_backscroll = 0; //johnfitz -- toggleconsole should return you to the bottom of the scrollback		
+			history_line = edit_line; //johnfitz -- it should also return you to the bottom of the command history
 		}
 		else
 		{
@@ -124,6 +136,7 @@ void Con_Clear_f (void)
 {
 	if (con_text)
 		Q_memset (con_text, ' ', CON_TEXTSIZE);
+	con_backscroll = 0; //johnfitz -- if console is empty, being scrolled up is confusing
 }
 				
 /*
@@ -575,36 +588,37 @@ Con_CenterPrintf -- johnfitz -- pad each line with spaces to make it appear cent
 void Con_CenterPrintf (int linewidth, char *fmt, ...)
 {
 	va_list	argptr;
-	char	msg[MAXPRINTMSG];
-	char	line[41]; //should be bigger
-	char	*start, *ofs;
-	int		len, i, remaining;
+	char	msg[MAXPRINTMSG]; //the original message
+	char	line[MAXPRINTMSG]; //one line from the message
+	char	spaces[21]; //buffer for spaces
+	char	*src, *dst;
+	int		len, s;
 
 	va_start (argptr,fmt);
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
 
-//	linewidth = min (linewidth, con_linewidth);
-	start = msg;
-	do 
+	linewidth = min (linewidth, con_linewidth);
+	for (src = msg; *src; )
 	{
-		memset (line, ' ', linewidth);
+		dst = line;
+		while (*src && *src != '\n')
+			*dst++ = *src++;
+		*dst = 0;
+		if (*src == '\n')
+			src++;
 
-		for (len=0; len<linewidth, start[len]; len++)
-			if (start[len] == '\n')
-			{
-				len++;
-				break;
-			}
-
-		for (i=0; i<len; i++)
-			line[i + (linewidth-len)/2] = start[i];
-		line[i + (linewidth-len)/2] = 0;
-			
-		Con_Printf ("%s", line);
-
-		start += len;
-	} while (*start);
+		len = strlen(line);
+		if (len < linewidth)
+		{
+			s = (linewidth-len)/2;
+			memset (spaces, ' ', s);
+			spaces[s] = 0;
+			Con_Printf ("%s%s\n", spaces, line);
+		}
+		else
+			Con_Printf ("%s\n", line);
+	}
 }
 
 /*
@@ -624,9 +638,9 @@ void Con_LogCenterPrint (char *str)
 
 	if (con_logcenterprint.value)
 	{
-		Con_Printf("%s\n", Con_Quakebar(40));
+		Con_Printf (Con_Quakebar(40));
 		Con_CenterPrintf (40, "%s\n", str);
-		Con_Printf("%s\n", Con_Quakebar(40));
+		Con_Printf (Con_Quakebar(40));
 		Con_ClearNotify ();
 	}
 }
@@ -735,21 +749,25 @@ Con_TabComplete -- johnfitz
 */
 void Con_TabComplete (void)
 {
-	char	partial[MAXCMDLINE];
-	char	*c, *match;
-	tab_t	*t;
-	int		mark, i;
+	char		partial[MAXCMDLINE];
+	char		*match;
+	static char	*c;
+	tab_t		*t;
+	int			mark, i;
 
 // if editline is empty, return
 	if (key_lines[edit_line][1] == 0)
 		return;
 
 // get partial string (space -> cursor)
-	//work back from cursor until you find a space, quote, semicolon, or prompt
-	c = key_lines[edit_line] + key_linepos - 1; //start one space left of cursor
-	while (*c!=' ' && *c!='\"' && *c!=';' && c!=key_lines[edit_line])
-		c--;
-	c++; //start 1 char after the seperator we just found
+	if (!Q_strlen(key_tabpartial)) //first time through, find new insert point. (Otherwise, use previous.)
+	{
+		//work back from cursor until you find a space, quote, semicolon, or prompt
+		c = key_lines[edit_line] + key_linepos - 1; //start one space left of cursor
+		while (*c!=' ' && *c!='\"' && *c!=';' && c!=key_lines[edit_line])
+			c--;
+		c++; //start 1 char after the seperator we just found
+	}
 	for (i = 0; c + i < key_lines[edit_line] + key_linepos; i++)
 		partial[i] = c[i];
 	partial[i] = 0;
@@ -798,7 +816,7 @@ void Con_TabComplete (void)
 		//use next or prev to find next match (reverse since list is backwards)
 		match = keydown[K_SHIFT] ? t->next->name : t->prev->name;
 	}
-	Hunk_FreeToLowMark(mark); //free it here becuase match is a pointer to persistent data
+	Hunk_FreeToLowMark(mark); //it's okay to free it here becuase match is a pointer to persistent data
 
 // insert new match into edit line
 	Q_strcpy (partial, match); //first copy match string
@@ -807,12 +825,12 @@ void Con_TabComplete (void)
 	key_linepos = c - key_lines[edit_line] + Q_strlen(match); //set new cursor position
 
 // if cursor is at end of string, let's append a space to make life easier
-//	if (key_lines[edit_line][key_linepos] == 0)
-//	{
-//		key_lines[edit_line][key_linepos] = ' ';
-//		key_linepos++;
-//		key_lines[edit_line][key_linepos] = 0;
-//	}
+	if (key_lines[edit_line][key_linepos] == 0)
+	{
+		key_lines[edit_line][key_linepos] = ' ';
+		key_linepos++;
+		key_lines[edit_line][key_linepos] = 0;
+	}
 }
 
 /*
@@ -859,6 +877,8 @@ void Con_DrawNotify (void)
 			Draw_Character ( (x+1)<<3, v, text[x]);
 
 		v += 8;
+
+		scr_tileclear_updates = 0; //johnfitz
 	}
 
 
@@ -886,6 +906,8 @@ void Con_DrawNotify (void)
 		}
 		Draw_Character ( (x+strlen(say_prompt)+2)<<3, v, 10+((int)(realtime*con_cursorspeed)&1)); //johnfitz
 		v += 8;
+
+		scr_tileclear_updates = 0; //johnfitz
 	}
 }
 
@@ -981,7 +1003,7 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 	
 //draw version number in bottom right
 	y+=8;
-	sprintf (ver, "FitzQuake %1.2f", (float)FITZQUAKE_VERSION);
+	sprintf (ver, "FitzQuake %1.2f"/*" beta"*/, (float)FITZQUAKE_VERSION);
 	for (x=0; x<strlen(ver); x++)
 		Draw_Character ((con_linewidth-strlen(ver)+x+2)<<3, y, ver[x] /*+ 128*/);
 }
@@ -997,10 +1019,10 @@ void Con_NotifyBox (char *text)
 	double		t1, t2;
 
 // during startup for sound / cd warnings
-	Con_Printf("\n\n%s\n", Con_Quakebar(40)); //johnfitz
+	Con_Printf ("\n\n%s", Con_Quakebar(40)); //johnfitz
 	Con_Printf (text);
 	Con_Printf ("Press a key.\n");
-	Con_Printf("%s\n", Con_Quakebar(40)); //johnfitz
+	Con_Printf (Con_Quakebar(40)); //johnfitz
 
 	key_count = -2;		// wait for a key down and up
 	key_dest = key_console;

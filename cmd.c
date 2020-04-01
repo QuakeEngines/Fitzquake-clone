@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -631,11 +631,7 @@ void	Cmd_AddCommand (char *cmd_name, xcommand_t function)
 	cmd->function = function;
 
 	//johnfitz -- insert each entry in alphabetical order
-    if (cmd_functions == NULL) //empty list
-	{
-        cmd_functions = cmd;
-    }
-    else if (strcmp(cmd->name, cmd_functions->name) < 0) //insert at front
+    if (cmd_functions == NULL || strcmp(cmd->name, cmd_functions->name) < 0) //insert at front
 	{
         cmd->next = cmd_functions;
         cmd_functions = cmd;
@@ -644,7 +640,8 @@ void	Cmd_AddCommand (char *cmd_name, xcommand_t function)
 	{
         prev = cmd_functions;
         cursor = cmd_functions->next; 
-        while ((cursor != NULL) && (strcmp(cmd->name, cursor->name) > 0)) {
+        while ((cursor != NULL) && (strcmp(cmd->name, cursor->name) > 0))
+		{
             prev = cursor;
             cursor = cursor->next;
         }

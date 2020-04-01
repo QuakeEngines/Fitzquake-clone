@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -79,8 +79,10 @@ typedef struct texture_s
 	char				name[16];
 	unsigned			width, height;
 	struct gltexture_s	*gltexture; //johnfitz -- pointer to gltexture
-	struct gltexture_s	*fullbright; //johnfitz -- fullbrights
-	struct msurface_s	*texturechain;	// for gl_texsort drawing
+	struct gltexture_s	*fullbright; //johnfitz -- fullbright mask texture
+	struct gltexture_s	*warpimage; //johnfitz -- for water animation
+	qboolean			update_warp; //johnfitz -- update warp this frame
+	struct msurface_s	*texturechain;	// for texture chains
 	int					anim_total;				// total tenths in sequence ( 0 = no)
 	int					anim_min, anim_max;		// time for this frame min <=time< max
 	struct texture_s	*anim_next;		// in the animation sequence
@@ -96,6 +98,7 @@ typedef struct texture_s
 #define SURF_DRAWTILED		0x20
 #define SURF_DRAWBACKGROUND	0x40
 #define SURF_UNDERWATER		0x80
+#define SURF_NOTEXTURE		0x100 //johnfitz
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
 typedef struct
@@ -119,13 +122,15 @@ typedef struct glpoly_s
 	struct	glpoly_s	*next;
 	struct	glpoly_s	*chain;
 	int		numverts;
-	int		flags;			// for SURF_UNDERWATER
 	float	verts[4][VERTEXSIZE];	// variable sized (xyz s1t1 s2t2)
 } glpoly_t;
 
 typedef struct msurface_s
 {
 	int			visframe;		// should be drawn when node is crossed
+	qboolean	culled;			// johnfitz -- for frustum culling
+	float		mins[3];		// johnfitz -- for frustum culling
+	float		maxs[3];		// johnfitz -- for frustum culling
 
 	mplane_t	*plane;
 	int			flags;
@@ -152,7 +157,6 @@ typedef struct msurface_s
 	int			cached_light[MAXLIGHTMAPS];	// values currently used in lightmap
 	qboolean	cached_dlight;				// true if dynamic light in cache
 	byte		*samples;		// [numstyles*surfsize]
-	int			draw_this_frame; //johnfitz -- fullbrights
 } msurface_t;
 
 typedef struct mnode_s
@@ -218,9 +222,9 @@ SPRITE MODELS
 // FIXME: shorten these?
 typedef struct mspriteframe_s
 {
-	int					width;
-	int					height;
+	int					width, height;
 	float				up, down, left, right;
+	float				smax, tmax; //johnfitz -- image might be padded
 	struct gltexture_s	*gltexture;
 } mspriteframe_t;
 

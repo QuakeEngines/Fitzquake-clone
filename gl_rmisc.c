@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -30,11 +30,29 @@ extern cvar_t r_drawflat;
 extern cvar_t r_flatlightstyles;
 extern cvar_t gl_fullbrights;
 extern cvar_t gl_farclip;
+extern cvar_t gl_overbright;
 extern cvar_t gl_overbright_models;
-cvar_t r_waterwarp = {"r_waterwarp", "1"};
+extern cvar_t r_waterquality;
+extern cvar_t r_oldwater;
+extern cvar_t r_waterwarp;
+extern cvar_t r_oldskyleaf;
 //johnfitz
 
+extern float load_subdivide_size; //johnfitz -- remember what subdivide_size value was when this map was loaded
+
+extern cvar_t gl_subdivide_size; //johnfitz -- moved here from gl_model.c
+
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
+
+/*
+====================
+GL_Overbright_f -- johnfitz
+====================
+*/
+GL_Overbright_f (void)
+{
+	R_RebuildAllLightmaps ();
+}
 
 /*
 ====================
@@ -62,7 +80,16 @@ void R_Novis_f (void)
 	vis_changed = TRUE;
 }
 
-//==============================================================================
+/*
+====================
+R_OldSkyLeaf_f -- johnfitz
+====================
+*/
+void R_OldSkyLeaf_f (void)
+{
+	extern int vis_changed;
+	vis_changed = TRUE;
+}
 
 /*
 ===============
@@ -158,7 +185,6 @@ void R_Init (void)
 
 	Cvar_RegisterVariable (&gl_finish, NULL);
 	Cvar_RegisterVariable (&gl_clear, NULL);
-	Cvar_RegisterVariable (&gl_texsort, NULL);
 	Cvar_RegisterVariable (&gl_cull, NULL);
 	Cvar_RegisterVariable (&gl_smoothmodels, NULL);
 	Cvar_RegisterVariable (&gl_affinemodels, NULL);
@@ -166,19 +192,24 @@ void R_Init (void)
 	Cvar_RegisterVariable (&gl_flashblend, NULL);
 	Cvar_RegisterVariable (&gl_playermip, NULL);
 	Cvar_RegisterVariable (&gl_nocolors, NULL);
-	Cvar_RegisterVariable (&gl_keeptjunctions, NULL);
 
 	//johnfitz -- new cvars
 	Cvar_RegisterVariable (&r_stereo, NULL);
 	Cvar_RegisterVariable (&r_stereodepth, NULL);
 	Cvar_RegisterVariable (&r_clearcolor, R_SetClearColor_f);
+	Cvar_RegisterVariable (&r_waterquality, NULL);
+	Cvar_RegisterVariable (&r_oldwater, NULL);
 	Cvar_RegisterVariable (&r_waterwarp, NULL);
 	Cvar_RegisterVariable (&r_drawflat, NULL);
 	Cvar_RegisterVariable (&r_flatlightstyles, NULL);
 	Cvar_RegisterVariable (&gl_farclip, NULL);
 	Cvar_RegisterVariable (&gl_fullbrights, NULL);
+	Cvar_RegisterVariable (&gl_overbright, GL_Overbright_f);
 	Cvar_RegisterVariable (&gl_overbright_models, NULL);
+	Cvar_RegisterVariable (&r_oldskyleaf, R_OldSkyLeaf_f);
 	//johnfitz
+
+	Cvar_RegisterVariable (&gl_subdivide_size, NULL); //johnfitz -- moved here from gl_model.c
 
 	R_InitParticles ();
 	R_SetClearColor_f (); //johnfitz
@@ -193,7 +224,7 @@ void R_Init (void)
 
 /*
 ===============
-R_TranslatePlayerSkin -- johnfitz -- much revision
+R_TranslatePlayerSkin -- johnfitz -- much revision. still a fucking mess.
 
 Translates a skin texture by the per-player color lookup
 ===============
@@ -256,8 +287,8 @@ void R_TranslatePlayerSkin (int playernum)
 	// because this happens during gameplay, do it fast
 	// instead of sending it through gl_upload 8
 
-	inwidth = Pad(paliashdr->skinwidth); //johnfitz -- texels already padded in mod_loadallskins
-	inheight = Pad(paliashdr->skinheight); //johnfitz -- texels already padded in mod_loadallskins
+	inwidth = TexMgr_Pad(paliashdr->skinwidth); //johnfitz -- texels already padded in mod_loadallskins
+	inheight = TexMgr_Pad(paliashdr->skinheight); //johnfitz -- texels already padded in mod_loadallskins
 
 	scaled_width = TexMgr_SafeTextureSize (inwidth); 
 	scaled_height = TexMgr_SafeTextureSize (inheight);
@@ -277,10 +308,9 @@ void R_TranslatePlayerSkin (int playernum)
 			pixels[i+3] = translate32[original[i+3]];
 		}
 		sprintf(name, "player_%i", playernum);
-		playertextures[playernum] = TexMgr_LoadImage32 (name, scaled_width, scaled_height, pixels, 0); //johnfitz
+		playertextures[playernum] = TexMgr_LoadImage32 (NULL, name, scaled_width, scaled_height, pixels, TEXPREF_UNIQUE); //johnfitz
 	}
 }
-
 
 /*
 ===============
@@ -307,20 +337,13 @@ void R_NewMap (void)
 
 	GL_BuildLightmaps ();
 
-// clear texture chains
-	//johnfitz -- deleted sky-specific stuff, no longer needed
-	for (i=0 ; i<cl.worldmodel->numtextures ; i++)
-	{
-		if (!cl.worldmodel->textures[i])
-			continue;
- 		cl.worldmodel->textures[i]->texturechain = NULL;
-	}
-
-	Sky_NewMap (); //johnfitz
-	Fog_NewMap (); //johnfitz
-
 	r_framecount = 0; //johnfitz -- paranoid?
 	r_visframecount = 0; //johnfitz -- paranoid?
+
+	Sky_NewMap (); //johnfitz -- skybox in worldspawn
+	Fog_NewMap (); //johnfitz -- global fog in worldspawn
+
+	load_subdivide_size = gl_subdivide_size.value; //johnfitz -- is this the right place to set this?
 }
 
 /*

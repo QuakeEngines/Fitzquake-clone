@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -884,6 +884,8 @@ Sbar_Draw
 */
 void Sbar_Draw (void)
 {
+	float w; //johnfitz
+
 	if (scr_con_current == vid.height)
 		return;		// console is full screen
 
@@ -897,9 +899,18 @@ void Sbar_Draw (void)
 
 	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
 
-	//johnfitz -- glwidth instead of vid.width
-	if (sb_lines && glwidth > 320)
-		Draw_TileClear (0, glheight - sb_lines, glwidth, sb_lines);
+	//johnfitz -- don't waste fillrate by clearing the area behind the sbar
+	w = CLAMP (320.0f, scr_sbarscale.value * 320.0f, (float)glwidth);
+	if (sb_lines && glwidth > w)
+	{
+		if (cl.gametype == GAME_DEATHMATCH)
+			Draw_TileClear (w, glheight - sb_lines, glwidth - w, sb_lines);
+		else
+		{
+			Draw_TileClear (0, glheight - sb_lines, (glwidth - w) / 2.0f, sb_lines);
+			Draw_TileClear ((glwidth - w) / 2.0f + w, glheight - sb_lines, (glwidth - w) / 2.0f, sb_lines);
+		}
+	}
 	//johnfitz
 
 	GL_SetCanvas (CANVAS_SBAR); //johnfitz

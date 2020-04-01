@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -1290,6 +1290,8 @@ void COM_WriteFile (char *filename, void *data, int len)
 {
 	int             handle;
 	char    name[MAX_OSPATH];
+
+	Sys_mkdir (com_gamedir); //johnfitz -- if we've switched to a nonexistant gamedir, create it now so we don't crash
 	
 	sprintf (name, "%s/%s", com_gamedir, filename);
 

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -367,11 +367,7 @@ void Cvar_RegisterVariable (cvar_t *variable, void *function)
 // link the variable in
 
 	//johnfitz -- insert each entry in alphabetical order
-    if (cvar_vars == NULL) //empty list
-	{
-        cvar_vars = variable;
-    }
-    else if (strcmp(variable->name, cvar_vars->name) < 0) //insert at front
+    if (cvar_vars == NULL || strcmp(variable->name, cvar_vars->name) < 0) //insert at front
 	{
         variable->next = cvar_vars;
         cvar_vars = variable;

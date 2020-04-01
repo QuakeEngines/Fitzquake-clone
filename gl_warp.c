@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -16,20 +16,39 @@ See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
 */
-// gl_warp.c -- sky and water polygons
+//gl_warp.c -- warping animation support
 
 #include "quakedef.h"
+
+extern cvar_t r_drawflat;
+
+cvar_t r_oldwater = {"r_oldwater", "1"};
+cvar_t r_waterquality = {"r_waterquality", "8"};
+cvar_t r_waterwarp = {"r_waterwarp", "1"};
+
+float load_subdivide_size; //johnfitz -- remember what subdivide_size value was when this map was loaded
+
+float	turbsin[] =
+{
+	#include "gl_warp_sin.h"
+};
+
+#define WARPCALC(s,t) ((s + turbsin[(int)((t*2)+(cl.time*(128.0/M_PI))) & 255]) * (1.0/64)) //johnfitz -- correct warp
+#define WARPCALC2(s,t) ((s + turbsin[(int)((t*0.125+cl.time)*(128.0/M_PI)) & 255]) * (1.0/64)) //johnfitz -- old warp
+
+//==============================================================================
+//
+//  OLD-STYLE WATER
+//
+//==============================================================================
 
 extern	model_t	*loadmodel;
 
 msurface_t	*warpface;
 
-extern cvar_t gl_subdivide_size;
-extern cvar_t r_drawflat; //johnfitz
+cvar_t gl_subdivide_size = {"gl_subdivide_size", "128", true};
 
-//return bounding box for poly
 void BoundPoly (int numverts, float *verts, vec3_t mins, vec3_t maxs)
 {
 	int		i, j;
@@ -118,8 +137,8 @@ void SubdividePolygon (int numverts, float *verts)
 	}
 
 	poly = Hunk_Alloc (sizeof(glpoly_t) + (numverts-4) * VERTEXSIZE*sizeof(float));
-	poly->next = warpface->polys;
-	warpface->polys = poly;
+	poly->next = warpface->polys->next;
+	warpface->polys->next = poly;
 	poly->numverts = numverts;
 	for (i=0 ; i<numverts ; i++, verts+= 3)
 	{
@@ -134,95 +153,112 @@ void SubdividePolygon (int numverts, float *verts)
 /*
 ================
 GL_SubdivideSurface
-
-Breaks a polygon up along axial 64 unit
-boundaries so that turbulent and sky warps
-can be done reasonably.
 ================
 */
 void GL_SubdivideSurface (msurface_t *fa)
 {
-	vec3_t		verts[64];
-	int			numverts;
-	int			i;
-	int			lindex;
-	float		*vec;
-	texture_t	*t;
+	vec3_t	verts[64];
+	int		i;
 
 	warpface = fa;
 
-	//
-	// convert edges back to a normal polygon
-	//
-	numverts = 0;
-	for (i=0 ; i<fa->numedges ; i++)
-	{
-		lindex = loadmodel->surfedges[fa->firstedge + i];
+	//the first poly in the chain is the undivided poly for newwater rendering.
+	//grab the verts from that.
+	for (i=0; i<fa->polys->numverts; i++)
+		VectorCopy (fa->polys->verts[i], verts[i]);
 
-		if (lindex > 0)
-			vec = loadmodel->vertexes[loadmodel->edges[lindex].v[0]].position;
-		else
-			vec = loadmodel->vertexes[loadmodel->edges[-lindex].v[1]].position;
-		VectorCopy (vec, verts[numverts]);
-		numverts++;
-	}
-
-	SubdividePolygon (numverts, verts[0]);
+	SubdividePolygon (fa->polys->numverts, verts[0]);
 }
 
-//=========================================================
-
-
-
-// speed up sin calculations - Ed
-float	turbsin[] =
-{
-	#include "gl_warp_sin.h"
-};
-#define TURBSCALE (256.0 / (2 * M_PI))
-
 /*
-=============
-EmitWaterPolys
-
-Does a water warp on the pre-fragmented glpoly_t chain
-=============
+================
+DrawWaterPoly -- johnfitz
+================
 */
-void EmitWaterPolys (msurface_t *fa)
+void DrawWaterPoly (glpoly_t *p)
 {
-	glpoly_t	*p;
-	float		*v;
-	int			i;
-	float		s, t, os, ot;
+	float	*v;
+	int		i;
 
-	for (p=fa->polys ; p ; p=p->next)
+	if (load_subdivide_size > 48)
 	{
-
-		if (r_drawflat.value) //johnfitz -- r_drawflat
-		{
-			srand((unsigned int) p);
-			glColor4f (rand()%256/255.0, rand()%256/255.0, rand()%256/255.0, r_wateralpha.value);
-		}
-
 		glBegin (GL_POLYGON);
-		for (i=0,v=p->verts[0] ; i<p->numverts ; i++, v+=VERTEXSIZE)
+		v = p->verts[0];
+		for (i=0 ; i<p->numverts ; i++, v+= VERTEXSIZE)
 		{
-			os = v[3];
-			ot = v[4];
-
-			s = os + turbsin[(int)((ot*0.125+cl.time) * TURBSCALE) & 255]; //johnfitz -- cl.time instead of realtime
-			s *= (1.0/64);
-
-			t = ot + turbsin[(int)((os*0.125+cl.time) * TURBSCALE) & 255]; //johnfitz -- cl.time instead of realtime
-			t *= (1.0/64);
-
-			glTexCoord2f (s, t);
+			glTexCoord2f (WARPCALC2(v[3],v[4]), WARPCALC2(v[4],v[3]));
 			glVertex3fv (v);
 		}
 		glEnd ();
-
-		rs_brushpasses++; //johnfitz
 	}
-	
-	rs_brushpolys++; //johnfitz
+	else
+	{
+		glBegin (GL_POLYGON);
+		v = p->verts[0];
+		for (i=0 ; i<p->numverts ; i++, v+= VERTEXSIZE)
+		{
+			glTexCoord2f (WARPCALC(v[3],v[4]), WARPCALC(v[4],v[3]));
+			glVertex3fv (v);
+		}
+		glEnd ();
+	}
+}
+
+//==============================================================================
+//
+//  RENDER-TO-FRAMEBUFFER WATER
+//
+//==============================================================================
+
+/*
+=============
+R_UpdateWarpTextures -- johnfitz -- each frame, update warping textures
+=============
+*/
+void R_UpdateWarpTextures (void)
+{
+	texture_t *tx;
+	int i;
+	float x, y, x2, warptess;
+
+	if (r_oldwater.value || cl.paused || r_drawflat_cheatsafe || r_lightmap_cheatsafe)
+		return;
+
+	warptess = 128.0/CLAMP (3.0, floor(r_waterquality.value), 64.0);
+
+	for (i=0; i<cl.worldmodel->numtextures; i++)
+	{
+		if (!(tx = cl.worldmodel->textures[i]))
+			continue;
+
+		if (!tx->update_warp)
+			continue;
+
+		//render warp
+		GL_SetCanvas (CANVAS_WARPIMAGE);
+		GL_Bind (tx->gltexture);
+		for (x=0.0; x<128.0; x=x2)
+		{
+			x2 = x + warptess;
+			glBegin (GL_TRIANGLE_STRIP);
+			for (y=0.0; y<128.01; y+=warptess) // .01 for rounding errors
+			{
+				glTexCoord2f (WARPCALC(x,y), WARPCALC(y,x));
+				glVertex2f (x,y);
+				glTexCoord2f (WARPCALC(x2,y), WARPCALC(y,x2));
+				glVertex2f (x2,y);
+			}
+			glEnd();
+		}
+
+		//copy to texture
+		GL_Bind (tx->warpimage);
+		glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, glx, gly+glheight-gl_warpimagesize, gl_warpimagesize, gl_warpimagesize);
+
+		tx->update_warp = false;
+	}
+
+	//if warp render went down into sbar territory, we need to be sure to refresh it next frame
+	if (gl_warpimagesize + sb_lines > glheight)
+		Sbar_Changed ();
 }

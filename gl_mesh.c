@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -298,6 +298,14 @@ void GL_MakeAliasModelDisplayLists (model_t *m, aliashdr_t *hdr)
 	FILE	*f;
 	int		len;
 	byte	*data;
+	float	hscale, vscale; //johnfitz -- padded skins
+	int		count; //johnfitz -- precompute texcoords for padded skins
+	int		*loadcmds; //johnfitz
+
+	//johnfitz -- padded skins
+	hscale = (float)hdr->skinwidth/(float)TexMgr_PadConditional(hdr->skinwidth);
+	vscale = (float)hdr->skinheight/(float)TexMgr_PadConditional(hdr->skinheight);
+	//johnfitz
 
 	aliasmodel = m;
 	paliashdr = hdr;	// (aliashdr_t *)Mod_Extradata (m);
@@ -349,10 +357,28 @@ void GL_MakeAliasModelDisplayLists (model_t *m, aliashdr_t *hdr)
 
 	cmds = Hunk_Alloc (numcommands * 4);
 	paliashdr->commands = (byte *)cmds - (byte *)paliashdr;
-	memcpy (cmds, commands, numcommands * 4);
 
-	verts = Hunk_Alloc (paliashdr->numposes * paliashdr->poseverts 
-		* sizeof(trivertx_t) );
+	//johnfitz -- precompute texcoords for padded skins
+	loadcmds = commands;
+	while(1)
+	{
+		*cmds++ = count = *loadcmds++;
+
+		if (!count)
+			break;
+
+		if (count < 0)
+			count = -count;
+
+		do
+		{
+			*(float *)cmds++ = hscale * (*(float *)loadcmds++);
+			*(float *)cmds++ = vscale * (*(float *)loadcmds++);
+		} while (--count);
+	}
+	//johnfitz
+
+	verts = Hunk_Alloc (paliashdr->numposes * paliashdr->poseverts * sizeof(trivertx_t));
 	paliashdr->posedata = (byte *)verts - (byte *)paliashdr;
 	for (i=0 ; i<paliashdr->numposes ; i++)
 		for (j=0 ; j<numorder ; j++)

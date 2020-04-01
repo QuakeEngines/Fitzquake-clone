@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -109,8 +109,6 @@ extern	int		reinit_surfcache;
 
 extern	refdef_t	r_refdef;
 extern vec3_t	r_origin, vpn, vright, vup;
-
-extern	struct texture_s	*r_notexture_mip;
 
 
 void R_Init (void);

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -390,6 +390,16 @@ void Hunk_Print (qboolean all)
 	Con_Printf ("-------------------------\n");
 	Con_Printf ("%8i total blocks\n", totalblocks);
 	
+}
+
+/*
+===================
+Hunk_Print_f -- johnfitz -- console command to call hunk_print
+===================
+*/
+void Hunk_Print_f (void)
+{
+	Hunk_Print (false);
 }
 
 /*
@@ -838,6 +848,11 @@ void Cache_Free (cache_user_t *c)
 	c->data = NULL;
 
 	Cache_UnlinkLRU (cs);
+
+	//johnfitz -- if a model becomes uncached, free the gltextures.  This only works 
+	//becuase the cache_user_t is the last component of the model_t struct.  Should 
+	//fail harmlessly if *c is actually part of an sfx_t struct.  I FEEL DIRTY
+	//TexMgr_FreeTexturesForOwner ((model_t *)(c + 1) - 1);
 }
 
 
@@ -932,5 +947,7 @@ void Memory_Init (void *buf, int size)
 	}
 	mainzone = Hunk_AllocName (zonesize, "zone" );
 	Z_ClearZone (mainzone, zonesize);
+
+	Cmd_AddCommand ("hunk_print", Hunk_Print_f); //johnfitz
 }
 

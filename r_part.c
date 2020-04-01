@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -41,8 +41,11 @@ gltexture_t *particletexture, *particletexture1, *particletexture2; //johnfitz
 cvar_t	r_particles = {"r_particles","1", true}; //johnfitz
 cvar_t	r_quadparticles = {"r_quadparticles","1", true}; //johnfitz
 
-
-//johnfitz -- generate nice antialiased 32x32 circle for particles
+/*
+===============
+R_ParticleTextureLookup -- johnfitz -- generate nice antialiased 32x32 circle for particles
+===============
+*/
 int R_ParticleTextureLookup (int x, int y, int sharpness) 
 {
 	int r; //distance from point x,y to circle origin, squared
@@ -53,15 +56,19 @@ int R_ParticleTextureLookup (int x, int y, int sharpness)
 	r = x * x + y * y;
 	r = r > 255 ? 255 : r;
 	a = sharpness * (255 - r);
-	a = a > 255 ? 255 : a;
+	a = min(a,255);
 	return a;
 }
-//johnfitz
 
-void R_InitParticleTextures (void) //johnfitz -- rewritten
+/*
+===============
+R_InitParticleTextures -- johnfitz -- rewritten
+===============
+*/
+void R_InitParticleTextures (void)
 {
 	int		x,y;
-	byte	data[64][64][4];
+	byte	data[64][64][4]; //FIXME: hunk_alloc this
 
 	// particle texture 1 -- circle
 	for (x=0 ; x<64 ; x++)
@@ -72,7 +79,7 @@ void R_InitParticleTextures (void) //johnfitz -- rewritten
 			data[y][x][2] = 255;
 			data[y][x][3] = R_ParticleTextureLookup(x, y, 8);
 		}
-	particletexture1 = TexMgr_LoadImage32 ("particle1", 64, 64, (unsigned int *)data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_LINEAR);
+	particletexture1 = TexMgr_LoadImage32 (NULL, "particle1", 64, 64, (unsigned int *)data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_LINEAR);
 
 	// particle texture 2 -- square
 	for (x=0 ; x<2 ; x++)
@@ -83,7 +90,7 @@ void R_InitParticleTextures (void) //johnfitz -- rewritten
 			data[y][x][2] = 255;
 			data[y][x][3] = x || y ? 0 : 255;
 		}
-	particletexture2 = TexMgr_LoadImage32 ("particle2", 2, 2, (unsigned int *)data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_NEAREST);
+	particletexture2 = TexMgr_LoadImage32 (NULL, "particle2", 2, 2, (unsigned int *)data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_NEAREST);
 
 	//set default
 	particletexture = particletexture1;
@@ -837,7 +844,7 @@ void R_DrawParticles (void)
 			VectorMA (p->org, scale, right, p_right);
 			glVertex3fv (p_right);
 
-			rs_particles++; //johnfitz
+			rs_particles++; //johnfitz //FIXME: just use r_numparticles
 		}
 		glEnd ();
 	}
@@ -873,13 +880,14 @@ void R_DrawParticles (void)
 			VectorMA (p->org, scale, right, p_right);
 			glVertex3fv (p_right);
 
-			rs_particles++; //johnfitz
+			rs_particles++; //johnfitz //FIXME: just use r_numparticles
 		}
 		glEnd ();
 	}
 
 	glDepthMask (GL_TRUE); //johnfitz -- fix for particle z-buffer bug
 	glDisable (GL_BLEND);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); 
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	glColor3f(1,1,1);
 }
 

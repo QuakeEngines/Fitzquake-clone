@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -177,6 +177,7 @@ typedef struct texinfo_s
 	int			flags;
 } texinfo_t;
 #define	TEX_SPECIAL		1		// sky or slime, no lightmap or 256 subdivision
+#define TEX_MISSING		2		// johnfitz -- this texinfo does not have a texture
 
 // note that edge 0 is never used, because negative edge nums are used for
 // counterclockwise use of the edge in a face

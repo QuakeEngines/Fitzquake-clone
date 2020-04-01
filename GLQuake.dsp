@@ -45,7 +45,7 @@ RSC=rc.exe
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /G5 /GX /Ot /Ow /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /YX /FD /c
 # SUBTRACT BASE CPP /Fr
-# ADD CPP /nologo /G5 /GX /Ot /Ow /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /Fr /YX /FD /c
+# ADD CPP /nologo /G5 /GX /Zd /Ot /Ow /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /Fr /YX /FD /c
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x409 /d "NDEBUG"
@@ -74,7 +74,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /G5 /ML /GX /ZI /Od /I ".\dxsdk\sdk\inc" /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "GLQUAKE" /FR /YX /FD /c
-# ADD CPP /nologo /G5 /ML /GX /ZI /Od /I ".\dxsdk\sdk\inc" /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "GLQUAKE" /FR /YX /FD /c
+# ADD CPP /nologo /G5 /ML /GX /ZI /Od /I ".\dxsdk\sdk\inc" /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "GLQUAKE" /D "DEBUGGL" /FR /YX /FD /c
 # ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x409 /d "_DEBUG"
@@ -138,10 +138,6 @@ SOURCE=.\gl_rmisc.c
 # End Source File
 # Begin Source File
 
-SOURCE=.\gl_rsurf.c
-# End Source File
-# Begin Source File
-
 SOURCE=.\gl_screen.c
 # End Source File
 # Begin Source File
@@ -170,7 +166,23 @@ SOURCE=.\image.c
 # End Source File
 # Begin Source File
 
+SOURCE=.\r_alias.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\r_brush.c
+# End Source File
+# Begin Source File
+
 SOURCE=.\r_part.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\r_sprite.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\r_world.c
 # End Source File
 # Begin Source File
 

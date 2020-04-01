@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -39,7 +39,8 @@ byte	mod_novis[MAX_MAP_LEAFS/8];
 model_t	mod_known[MAX_MOD_KNOWN];
 int		mod_numknown;
 
-cvar_t gl_subdivide_size = {"gl_subdivide_size", "128", true};
+texture_t	*r_notexture_mip; //johnfitz -- moved here from r_main.c
+texture_t	*r_notexture_mip2; //johnfitz -- used for non-lightmapped surfs with a missing texture
 
 /*
 ===============
@@ -48,13 +49,24 @@ Mod_Init
 */
 void Mod_Init (void)
 {
-	Cvar_RegisterVariable (&gl_subdivide_size, NULL);
 	memset (mod_novis, 0xff, sizeof(mod_novis));
+	
+	//johnfitz -- create notexture miptex
+	r_notexture_mip = Hunk_AllocName (sizeof(texture_t), "r_notexture_mip");
+	r_notexture_mip->gltexture = notexture;
+	strcpy (r_notexture_mip->name, "notexture");
+	r_notexture_mip->height = r_notexture_mip->width = 32;
+
+	r_notexture_mip2 = Hunk_AllocName (sizeof(texture_t), "r_notexture_mip2");
+	r_notexture_mip2->gltexture = notexture;
+	strcpy (r_notexture_mip2->name, "notexture2");
+	r_notexture_mip2->height = r_notexture_mip2->width = 32;
+	//johnfitz
 }
 
 /*
 ===============
-Mod_Init
+Mod_Extradata
 
 Caches the data if needed
 ===============
@@ -173,7 +185,10 @@ void Mod_ClearAll (void)
 	
 	for (i=0 , mod=mod_known ; i<mod_numknown ; i++, mod++)
 		if (mod->type != mod_alias)
+		{
 			mod->needload = true;
+			TexMgr_FreeTexturesForOwner (mod); //johnfitz
+		}
 }
 
 /*
@@ -336,14 +351,14 @@ byte	*mod_base;
 TextureContainsFullbrights -- johnfitz
 =================
 */
-int TextureContainsFullbrights (byte *pixels, int count)
+qboolean TextureContainsFullbrights (byte *pixels, int count)
 {
 	int i;
 
 	for (i = 0; i < count; i++)
 		if (pixels[i] > 223)
-			return 1;
-	return 0;
+			return true;
+	return false;
 }
 
 /*
@@ -373,21 +388,27 @@ void Mod_LoadTextures (lump_t *l)
 	texture_t	*anims[10];
 	texture_t	*altanims[10];
 	dmiptexlump_t *m;
-	char fbr_mask_name[64]; //johnfitz -- added for fullbright support
+	char		texturename[64]; //johnfitz
+	int			nummiptex; //johnfitz
 
+	//johnfitz -- don't return early if no textures; still need to create dummy texture
 	if (!l->filelen)
 	{
-		loadmodel->textures = NULL;
-		return;
+		Con_Printf ("Mod_LoadTextures: no textures in bsp file\n");
+		nummiptex = 0;
 	}
-	m = (dmiptexlump_t *)(mod_base + l->fileofs);
+	else
+	{
+		m = (dmiptexlump_t *)(mod_base + l->fileofs);
+		m->nummiptex = LittleLong (m->nummiptex); 
+		nummiptex = m->nummiptex;
+	}
+	//johnfitz
 	
-	m->nummiptex = LittleLong (m->nummiptex);
-	
-	loadmodel->numtextures = m->nummiptex;
-	loadmodel->textures = Hunk_AllocName (m->nummiptex * sizeof(*loadmodel->textures) , loadname);
+	loadmodel->numtextures = nummiptex + 2; //johnfitz -- need 2 dummy texture chains for missing textures
+	loadmodel->textures = Hunk_AllocName (loadmodel->numtextures * sizeof(*loadmodel->textures) , loadname);
 
-	for (i=0 ; i<m->nummiptex ; i++)
+	for (i=0 ; i<nummiptex ; i++)
 	{
 		m->dataofs[i] = LittleLong(m->dataofs[i]);
 		if (m->dataofs[i] == -1)
@@ -411,37 +432,91 @@ void Mod_LoadTextures (lump_t *l)
 			tx->offsets[j] = mt->offsets[j] + sizeof(texture_t) - sizeof(miptex_t);
 		// the pixels immediately follow the structures
 		memcpy ( tx+1, mt+1, pixels);
+
+		tx->update_warp = false; //johnfitz
+		tx->warpimage = NULL; //johnfitz
+		tx->fullbright = NULL; //johnfitz
 		
-		if (!isDedicated) //johnfitz -- no texture uploading for dedicated server
+		//johnfitz -- lots of changes
+		if (!isDedicated) //no texture uploading for dedicated server
 		{
-			if (!Q_strncmp(mt->name,"sky",3))	
+			if (!Q_strncmp(tx->name,"sky",3)) //sky texture
 				Sky_LoadTexture (tx);
-			else
+			else if (tx->name[0] == '*') //warp texture
 			{
-				tx->gltexture = TexMgr_LoadImage8 (mt->name, tx->width, tx->height, (byte *)(tx+1), TEXPREF_MIPMAP); //johnfitz -- TexMgr_LoadImage8
+				unsigned int *dummy;
+				int	mark;
+				sprintf (texturename, "%s_warpimage", tx->name);
+				mark = Hunk_LowMark();
+				dummy = Hunk_Alloc (gl_warpimagesize*gl_warpimagesize*4);
+				tx->warpimage = TexMgr_LoadImage32 (loadmodel, texturename, gl_warpimagesize, 
+					gl_warpimagesize, dummy, TEXPREF_NONE | TEXPREF_NOPICMIP);
+				Hunk_FreeToLowMark (mark);
 
-				//johnfitz -- check for fullbright pixels in the texture
-				if ((tx->name[0] != '*') && (TextureContainsFullbrights ((byte *)(tx+1), pixels)))
+				tx->gltexture = TexMgr_LoadImage8 (loadmodel, tx->name, tx->width, tx->height, 
+					(byte *)(tx+1), TEXPREF_NONE);
+
+				tx->update_warp = true;
+			}
+			else //regular texture
+			{
+				int		mark, fwidth, fheight;
+				FILE	*f;
+				char	filename[MAX_OSPATH];
+				byte	*data;
+
+				mark = Hunk_LowMark ();
+				sprintf (filename, "textures/%s", tx->name);
+				data = Image_LoadImage (filename, &fwidth, &fheight);
+
+				if (data) //load external image
 				{
-					// convert any non fullbright pixel to fully transparent
-					ConvertToFullbrightMask ((byte *)(tx + 1), pixels);
-
-					// get a new name for the fullbright mask to avoid cache mismatches
-					sprintf (fbr_mask_name, "%s_glow", mt->name);
-
-					// load the fullbright pixels version of the texture
-					tx->fullbright = TexMgr_LoadImage8 (fbr_mask_name, tx->width, tx->height, (byte *)(tx+1), TEXPREF_MIPMAP | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
+					tx->gltexture = TexMgr_LoadImage32 (loadmodel, filename, fwidth, fheight, 
+						(unsigned *)data, TEXPREF_MIPMAP);
+#if 0
+					//try to load glow/luma image
+					sprintf (filename, "textures/%s_glow", tx->name);
+					Hunk_FreeToLowMark (mark);
+					data = Image_LoadImage (filename, &fwidth, &fheight);
+					if (data)
+						tx->fullbright = TexMgr_LoadImage32 (loadmodel, filename, fwidth, fheight, 
+							(unsigned *)data, TEXPREF_MIPMAP | TEXPREF_ALPHA);
+					else
+					{
+						sprintf (filename, "textures/%s_luma", tx->name);
+						data = Image_LoadImage (filename, &fwidth, &fheight);
+						if (data)
+						tx->fullbright = TexMgr_LoadImage32 (loadmodel, filename, fwidth, fheight, 
+							(unsigned *)data, TEXPREF_MIPMAP | TEXPREF_ALPHA);
+					}
+#endif
 				}
-				else tx->fullbright = NULL; // because 0 is a potentially valid texture number
-				//johnfitz
+				else //use the texture from the bsp file
+				{
+					tx->gltexture = TexMgr_LoadImage8 (loadmodel, tx->name, tx->width, tx->height, 
+						(byte *)(tx+1), TEXPREF_MIPMAP);
+					if (TextureContainsFullbrights ((byte *)(tx+1), pixels))
+					{
+						ConvertToFullbrightMask ((byte *)(tx + 1), pixels);
+						sprintf (texturename, "%s_glow", tx->name);
+						tx->fullbright = TexMgr_LoadImage8 (loadmodel, texturename, tx->width, tx->height, 
+							(byte *)(tx+1), TEXPREF_MIPMAP | TEXPREF_ALPHA);
+					}
+				}
+				Hunk_FreeToLowMark (mark);
 			}
 		}
+		//johnfitz
 	}
+
+	//johnfitz -- last 2 slots in array should be filled with dummy textures
+	loadmodel->textures[loadmodel->numtextures-2] = r_notexture_mip; //for lightmapped surfs
+	loadmodel->textures[loadmodel->numtextures-1] = r_notexture_mip2; //for SURF_DRAWTILED surfs
 
 //
 // sequence the animations
 //
-	for (i=0 ; i<m->nummiptex ; i++)
+	for (i=0 ; i<nummiptex ; i++)
 	{
 		tx = loadmodel->textures[i];
 		if (!tx || tx->name[0] != '+')
@@ -474,7 +549,7 @@ void Mod_LoadTextures (lump_t *l)
 		else
 			Sys_Error ("Bad animating texture %s", tx->name);
 
-		for (j=i+1 ; j<m->nummiptex ; j++)
+		for (j=i+1 ; j<nummiptex ; j++)
 		{
 			tx2 = loadmodel->textures[j];
 			if (!tx2 || tx2->name[0] != '+')
@@ -534,18 +609,53 @@ void Mod_LoadTextures (lump_t *l)
 
 /*
 =================
-Mod_LoadLighting
+Mod_LoadLighting -- johnfitz -- replaced with lit support code via lordhavoc
 =================
 */
 void Mod_LoadLighting (lump_t *l)
 {
-	if (!l->filelen)
+	//
+	int i;
+	byte *in, *out, *data;
+	byte d;
+	char litfilename[1024];
+	loadmodel->lightdata = NULL;
+	// LordHavoc: check for a .lit file
+	strcpy(litfilename, loadmodel->name);
+	COM_StripExtension(litfilename, litfilename);
+	strcat(litfilename, ".lit");
+	data = (byte*) COM_LoadHunkFile (litfilename);
+	if (data)
 	{
-		loadmodel->lightdata = NULL;
-		return;
+		if (data[0] == 'Q' && data[1] == 'L' && data[2] == 'I' && data[3] == 'T')
+		{
+			i = LittleLong(((int *)data)[1]);
+			if (i == 1)
+			{
+				Con_DPrintf("%s loaded", litfilename);
+				loadmodel->lightdata = data + 8;
+				return;
+			}
+			else
+				Con_Printf("Unknown .lit file version (%d)\n", i);
+		}
+		else
+			Con_Printf("Corrupt .lit file (old version?), ignoring\n");
 	}
-	loadmodel->lightdata = Hunk_AllocName ( l->filelen, loadname);	
-	memcpy (loadmodel->lightdata, mod_base + l->fileofs, l->filelen);
+	// LordHavoc: no .lit found, expand the white lighting data to color
+	if (!l->filelen)
+		return;
+	loadmodel->lightdata = Hunk_AllocName ( l->filelen*3, litfilename);
+	in = loadmodel->lightdata + l->filelen*2; // place the file at the end, so it will not be overwritten until the very last write
+	out = loadmodel->lightdata;
+	memcpy (in, mod_base + l->fileofs, l->filelen);
+	for (i = 0;i < l->filelen;i++)
+	{
+		d = *in++;
+		*out++ = d;
+		*out++ = d;
+		*out++ = d;
+	}
 }
 
 
@@ -683,9 +793,9 @@ void Mod_LoadTexinfo (lump_t *l)
 {
 	texinfo_t *in;
 	mtexinfo_t *out;
-	int 	i, j, count;
-	int		miptex;
+	int 	i, j, count, miptex;
 	float	len1, len2;
+	int missing = 0; //johnfitz
 
 	in = (void *)(mod_base + l->fileofs);
 	if (l->filelen % sizeof(*in))
@@ -721,23 +831,27 @@ void Mod_LoadTexinfo (lump_t *l)
 		miptex = LittleLong (in->miptex);
 		out->flags = LittleLong (in->flags);
 	
-		if (!loadmodel->textures)
+		//johnfitz -- rewrote this section
+		if (miptex >= loadmodel->numtextures-1 || !loadmodel->textures[miptex])
 		{
-			out->texture = r_notexture_mip;	// checkerboard texture
-			out->flags = 0;
+			if (out->flags & TEX_SPECIAL)
+				out->texture = loadmodel->textures[loadmodel->numtextures-1];
+			else
+				out->texture = loadmodel->textures[loadmodel->numtextures-2];
+			out->flags |= TEX_MISSING;
+			missing++;
 		}
 		else
 		{
-			if (miptex >= loadmodel->numtextures)
-				Sys_Error ("miptex >= loadmodel->numtextures");
 			out->texture = loadmodel->textures[miptex];
-			if (!out->texture)
-			{
-				out->texture = r_notexture_mip; // texture not found
-				out->flags = 0;
-			}
 		}
+		//johnfitz
 	}
+
+	//johnfitz: report missing textures
+	if (missing && loadmodel->numtextures > 1)
+		Con_Printf ("Mod_LoadTexinfo: one or more textures is missing from BSP file\n", missing);
+	//johnfitz
 }
 
 /*
@@ -788,25 +902,31 @@ void CalcSurfaceExtents (msurface_t *s)
 
 		s->texturemins[i] = bmins[i] * 16;
 		s->extents[i] = (bmaxs[i] - bmins[i]) * 16;
-		if ( !(tex->flags & TEX_SPECIAL) && s->extents[i] > 512 /* 256 */ )
+		if ( !(tex->flags & TEX_SPECIAL) && s->extents[i] > 256) //johnfitz -- was 512 (but in winquake it's 256)
 			Sys_Error ("Bad surface extents");
 	}
 }
 
 /*
 ================
-Mod_PolyForSkySurface -- johnfitz -- adapted from GL_SubdivideSurface,  but does not actually subdivide
+Mod_PolyForUnlitSurface -- johnfitz -- creates polys for unlightmapped surfaces (sky and water)
+
+TODO: merge this into BuildSurfaceDisplayList?
 ================
 */
-void Mod_PolyForSkySurface (msurface_t *fa)
+void Mod_PolyForUnlitSurface (msurface_t *fa)
 {
 	vec3_t		verts[64];
-	int			numverts;
-	int			i;
-	int			lindex;
+	int			numverts, i, lindex;
 	float		*vec;
 	texture_t	*t;
 	glpoly_t	*poly;
+	float		texscale;
+
+	if (fa->flags & (SURF_DRAWTURB | SURF_DRAWSKY))
+		texscale = (1.0/128.0); //warp animation repeats every 128
+	else
+		texscale = (1.0/32.0); //to match r_notexture_mip
 
 	// convert edges back to a normal polygon
 	numverts = 0;
@@ -827,8 +947,49 @@ void Mod_PolyForSkySurface (msurface_t *fa)
 	poly->next = NULL;
 	fa->polys = poly;
 	poly->numverts = numverts;
-	for (i=0, vec=(float *)verts ; i<numverts ; i++, vec+= 3)
+	for (i=0, vec=(float *)verts; i<numverts; i++, vec+= 3)
+	{
 		VectorCopy (vec, poly->verts[i]);
+		poly->verts[i][3] = DotProduct(vec, fa->texinfo->vecs[0]) * texscale;
+		poly->verts[i][4] = DotProduct(vec, fa->texinfo->vecs[1]) * texscale;
+	}
+}
+
+/*
+=================
+Mod_CalcSurfaceBounds -- johnfitz -- calculate bounding box for per-surface frustum culling
+=================
+*/
+void Mod_CalcSurfaceBounds (msurface_t *s)
+{
+	int			i, e;
+	mvertex_t	*v;
+
+	s->mins[0] = s->mins[1] = s->mins[2] = 9999;
+	s->maxs[0] = s->maxs[1] = s->maxs[2] = -9999;
+
+	for (i=0 ; i<s->numedges ; i++)
+	{
+		e = loadmodel->surfedges[s->firstedge+i];
+		if (e >= 0)
+			v = &loadmodel->vertexes[loadmodel->edges[e].v[0]];
+		else
+			v = &loadmodel->vertexes[loadmodel->edges[-e].v[1]];
+		
+		if (s->mins[0] > v->position[0])
+			s->mins[0] = v->position[0];
+		if (s->mins[1] > v->position[1])
+			s->mins[1] = v->position[1];
+		if (s->mins[2] > v->position[2])
+			s->mins[2] = v->position[2];
+
+		if (s->maxs[0] < v->position[0])
+			s->maxs[0] = v->position[0];
+		if (s->maxs[1] < v->position[1])
+			s->maxs[1] = v->position[1];
+		if (s->maxs[2] < v->position[2])
+			s->maxs[2] = v->position[2];
+	}
 }
 
 /*
@@ -868,6 +1029,8 @@ void Mod_LoadFaces (lump_t *l)
 		out->texinfo = loadmodel->texinfo + LittleShort (in->texinfo);
 
 		CalcSurfaceExtents (out);
+
+		Mod_CalcSurfaceBounds (out); //johnfitz -- for per-surface frustum culling
 				
 	// lighting info
 
@@ -877,29 +1040,33 @@ void Mod_LoadFaces (lump_t *l)
 		if (i == -1)
 			out->samples = NULL;
 		else
-			out->samples = loadmodel->lightdata + i;
+			out->samples = loadmodel->lightdata + (i * 3); //johnfitz -- lit support via lordhavoc (was "+ i")
 		
-	// set the drawing flags flag
-		
-		if (!Q_strncmp(out->texinfo->texture->name,"sky",3))	// sky
+		//johnfitz -- this section rewritten
+		if (!Q_strncmp(out->texinfo->texture->name,"sky",3)) // sky surface
 		{
 			out->flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
-			Mod_PolyForSkySurface (out);	//johnfitz -- just make a single poly
-			continue;
+			Mod_PolyForUnlitSurface (out); //no more subdivision
 		}
-		
-		if (!Q_strncmp(out->texinfo->texture->name,"*",1))		// turbulent
+		else if (out->texinfo->texture->name[0] == '*') // warp surface
 		{
 			out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
-			for (i=0 ; i<2 ; i++)
-			{
-				out->extents[i] = 16384;
-				out->texturemins[i] = -8192;
-			}
-			GL_SubdivideSurface (out);	// cut up polygon for warps
-			continue;
+			Mod_PolyForUnlitSurface (out);
+			GL_SubdivideSurface (out);
 		}
-
+		else if (out->texinfo->flags & TEX_MISSING) // texture is missing from bsp
+		{
+			if (out->samples) //lightmapped
+			{
+				out->flags |= SURF_NOTEXTURE;
+			}
+			else // not lightmapped
+			{
+				out->flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
+				Mod_PolyForUnlitSurface (out);
+			}
+		}
+		//johnfitz
 	}
 }
 
@@ -1010,12 +1177,7 @@ void Mod_LoadLeafs (lump_t *l)
 		for (j=0 ; j<4 ; j++)
 			out->ambient_sound_level[j] = in->ambient_level[j];
 
-		// gl underwater warp
-		if (out->contents != CONTENTS_EMPTY)
-		{
-			for (j=0 ; j<out->nummarksurfaces ; j++)
-				out->firstmarksurface[j]->flags |= SURF_UNDERWATER;
-		}
+		//johnfitz -- removed code to mark surfaces as SURF_UNDERWATER
 	}	
 }
 
@@ -1522,8 +1684,8 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 
 			// save 8 bit texels for the player model to remap
 			//johnfitz -- changes for padded skin
-			padx = Pad(pheader->skinwidth);
-			pady = Pad(pheader->skinheight);
+			padx = TexMgr_PadConditional(pheader->skinwidth);
+			pady = TexMgr_PadConditional(pheader->skinheight);
 			texels = Hunk_AllocName(padx * pady, loadname);
 			pheader->texels[i] = texels - (byte *)pheader;
 			for (ii = 0; ii < pady; ii++) //each row
@@ -1543,7 +1705,7 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 			pheader->gltextures[i][1] =
 			pheader->gltextures[i][2] =
 			pheader->gltextures[i][3] =
-				TexMgr_LoadImage8 (name, pheader->skinwidth, pheader->skinheight, 
+				TexMgr_LoadImage8 (loadmodel, name, pheader->skinwidth, pheader->skinheight, 
 					(byte *)(pskintype+1), TEXPREF_PAD); //johnfitz -- TexMgr_LoadImage8
 
 			
@@ -1556,7 +1718,7 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 				pheader->fbtextures[i][1] =
 				pheader->fbtextures[i][2] =
 				pheader->fbtextures[i][3] =
-					TexMgr_LoadImage8 (fbr_mask_name, pheader->skinwidth, pheader->skinheight, 
+					TexMgr_LoadImage8 (loadmodel, fbr_mask_name, pheader->skinwidth, pheader->skinheight, 
 						(byte *)(pskintype+1), TEXPREF_PAD | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
 			}
 			else 
@@ -1586,7 +1748,7 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 				}
 				sprintf (name, "%s_%i_%i", loadmodel->name, i,j);
 				pheader->gltextures[i][j&3] =
-					TexMgr_LoadImage8 (name, pheader->skinwidth, pheader->skinheight, 
+					TexMgr_LoadImage8 (loadmodel, name, pheader->skinwidth, pheader->skinheight, 
 						(byte *)(pskintype), TEXPREF_PAD); //johnfitz -- TexMgr_LoadImage8
 
 				//johnfitz -- check for fullbright pixels in the skin
@@ -1595,7 +1757,7 @@ void *Mod_LoadAllSkins (int numskins, daliasskintype_t *pskintype)
 					ConvertToFullbrightMask ((byte *)(pskintype), size);
 					sprintf (fbr_mask_name, "%s_%i_%i_glow", loadmodel->name, i,j);
 					pheader->fbtextures[i][j&3] =
-						TexMgr_LoadImage8 (fbr_mask_name, pheader->skinwidth, pheader->skinheight, 
+						TexMgr_LoadImage8 (loadmodel, fbr_mask_name, pheader->skinwidth, pheader->skinheight, 
 							(byte *)(pskintype), TEXPREF_PAD | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
 				}
 				else 
@@ -1824,11 +1986,16 @@ void * Mod_LoadSpriteFrame (void * pin, mspriteframe_t **ppframe, int framenum)
 	pspriteframe->down = origin[1] - height;
 	pspriteframe->left = origin[0];
 	pspriteframe->right = width + origin[0];
+	
+	//johnfitz -- image might be padded
+	pspriteframe->smax = (float)width/(float)TexMgr_PadConditional(width);
+	pspriteframe->tmax = (float)height/(float)TexMgr_PadConditional(height);
+	//johnfitz
 
 	sprintf (name, "%s_%i", loadmodel->name, framenum);
 	pspriteframe->gltexture = 
-		TexMgr_LoadImage8 (name, width, height, (byte *)(pinframe + 1),
-			TEXPREF_PAD | TEXPREF_ALPHA); //johnfitz -- TexMgr_LoadImage8
+		TexMgr_LoadImage8 (loadmodel, name, width, height, (byte *)(pinframe + 1),
+		TEXPREF_PAD | TEXPREF_ALPHA | TEXPREF_NOPICMIP); //johnfitz -- TexMgr_LoadImage8
 
 	return (void *)((byte *)pinframe + sizeof (dspriteframe_t) + size);
 }
@@ -1977,7 +2144,7 @@ void Mod_Print (void)
 	Con_Printf ("Cached models:\n");
 	for (i=0, mod=mod_known ; i < mod_numknown ; i++, mod++)
 	{
-		Con_Printf ("%8p : %s\n",mod->cache.data, mod->name);
+		Con_Printf ("%8p : %s\n", mod->cache.data, mod->name);
 	}
 }
 

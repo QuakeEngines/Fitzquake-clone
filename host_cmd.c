@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -183,10 +183,14 @@ void Host_Game_f (void)
 			}
 		}
 
-		if (!isDedicated)
-			Draw_NewGame ();
-		ExtraMaps_NewGame ();
+		//clear out and reload appropriate data
 		Cache_Flush ();
+		if (!isDedicated)
+		{
+			TexMgr_NewGame ();
+			Draw_NewGame ();
+		}
+		ExtraMaps_NewGame ();
 		//Cbuf_InsertText ("exec quake.rc\n");
 
 		Con_Printf("\"game\" changed to \"%s\"\n", COM_SkipPath(com_gamedir));
@@ -218,14 +222,9 @@ void ExtraMaps_Add (char *name)
 
 	level = Z_Malloc(sizeof(extralevel_t));
 	strcpy (level->name, name);
-	level->next = NULL;
 
 	//insert each entry in alphabetical order
-    if (extralevels == NULL) //empty list
-	{
-        extralevels = level;
-    }
-    else if (stricmp(level->name, extralevels->name) < 0) //insert at front
+    if (extralevels == NULL || stricmp(level->name, extralevels->name) < 0) //insert at front
 	{
         level->next = extralevels;
         extralevels = level;
@@ -277,8 +276,8 @@ void ExtraMaps_Init (void) //TODO: move win32 specific stuff to sys_win.c
 		{
 			if (!strstr(search->pack->filename, ignorepakdir)) //don't list standard id maps
 				for (i=0, pak=search->pack; i<pak->numfiles ; i++)
-					if (pak->files[i].filelen > 10*1024) // don't list ammo boxes etc
-						if (strstr(pak->files[i].name, ".bsp"))
+					if (strstr(pak->files[i].name, ".bsp"))
+						if (pak->files[i].filelen > 10*1024) // don't list ammo boxes etc
 						{
 							COM_StripExtension(pak->files[i].name + 5, mapname);
 							ExtraMaps_Add (mapname);
@@ -348,14 +347,9 @@ void Modlist_Add (char *name)
 
 	mod = Z_Malloc(sizeof(mod_t));
 	strcpy (mod->name, name);
-	mod->next = NULL;
 
 	//insert each entry in alphabetical order
-    if (modlist == NULL) //empty list
-	{
-        modlist = mod;
-    }
-    else if (_stricmp(mod->name, modlist->name) < 0) //insert at front
+    if (modlist == NULL || _stricmp(mod->name, modlist->name) < 0) //insert at front
 	{
         mod->next = modlist;
         modlist = mod;
@@ -1231,8 +1225,8 @@ void Host_Name_f (void)
 	
 void Host_Version_f (void)
 {
-	Con_Printf ("Quake Version %4.2f\n", VERSION); //johnfitz
-	Con_Printf ("FitzQuake Version %4.2f\n", FITZQUAKE_VERSION); //johnfitz
+	Con_Printf ("Quake Version %1.2f\n", VERSION); //johnfitz
+	Con_Printf ("FitzQuake Version %1.2f\n", FITZQUAKE_VERSION); //johnfitz
 	Con_Printf ("Exe: "__TIME__" "__DATE__"\n");
 }
 

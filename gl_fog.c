@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -20,8 +20,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //gl_fog.c -- global and volumetric fog
 
 #include "quakedef.h"
-
-extern cvar_t r_drawflat;
 
 //==============================================================================
 //
@@ -281,7 +279,7 @@ called before drawing stuff that should be fogged
 */
 void Fog_EnableGFog (void)
 {
-	if (Fog_GetDensity() > 0 && !r_drawflat.value)
+	if (Fog_GetDensity() > 0)
 		glEnable(GL_FOG);
 }
 
@@ -294,7 +292,7 @@ called after drawing stuff that should be fogged
 */
 void Fog_DisableGFog (void)
 {
-	if (Fog_GetDensity() > 0 && !r_drawflat.value)
+	if (Fog_GetDensity() > 0)
 		glDisable(GL_FOG);
 }
 
@@ -336,9 +334,10 @@ void Fog_SetColorForSky (void)
 //
 //==============================================================================
 
-//removed for now
+cvar_t r_vfog = {"r_vfog", "1"};
 
 void Fog_DrawVFog (void){}
+void Fog_MarkModels (void){}
 
 //==============================================================================
 //
@@ -356,6 +355,7 @@ called whenever a map is loaded
 void Fog_NewMap (void)
 {
 	Fog_ParseWorldspawn (); //for global fog
+	Fog_MarkModels (); //for volumetric fog
 }
 
 /*
@@ -368,6 +368,8 @@ called when quake initializes
 void Fog_Init (void)
 {
 	Cmd_AddCommand ("fog",Fog_FogCommand_f);
+
+	//Cvar_RegisterVariable (&r_vfog, NULL);
 
 	//set up global fog
 	fog_density = 0.0;

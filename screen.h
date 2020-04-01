@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -57,7 +57,10 @@ void SCR_UpdateWholeScreen (void);
 #define CANVAS_CONSOLE 1
 #define CANVAS_MENU 2
 #define CANVAS_SBAR 3
+#define CANVAS_WARPIMAGE 4
 extern	cvar_t		scr_menuscale;
 extern	cvar_t		scr_sbarscale;
 extern	cvar_t		scr_conwidth;
 //johnfitz
+
+extern int scr_tileclear_updates; //johnfitz

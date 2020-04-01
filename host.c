@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -515,7 +515,7 @@ qboolean Host_FilterTime (float time)
 	if (host_framerate.value > 0)
 		host_frametime = host_framerate.value;
 	else // don't allow really long or short frames
-		host_frametime = CLAMP (0.001, host_frametime, 0.11); //johnfitz -- use CLAMP
+		host_frametime = CLAMP (0.001, host_frametime, 0.1); //johnfitz -- use CLAMP
 	
 	return true;
 }

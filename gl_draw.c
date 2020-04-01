@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -39,12 +39,7 @@ typedef struct
 	float		sl, tl, sh, th;
 } glpic_t;
 
-int		gl_lightmap_format = 4;
-
-
-int		texels;
-
-int		the_current_texture_was_padded = false; //johnfitz -- hack-a-licious
+int currentcanvas = -1; //johnfitz -- for GL_SetCanvas
 
 //==============================================================================
 //
@@ -77,7 +72,6 @@ int			scrap_allocated[MAX_SCRAPS][BLOCK_WIDTH];
 byte		scrap_texels[MAX_SCRAPS][BLOCK_WIDTH*BLOCK_HEIGHT]; //johnfitz -- removed *4 after BLOCK_HEIGHT
 qboolean	scrap_dirty;
 gltexture_t	*scrap_textures[MAX_SCRAPS]; //johnfitz
-int			scrap_uploads;
 
 /*
 ================
@@ -124,7 +118,7 @@ int Scrap_AllocBlock (int w, int h, int *x, int *y)
 		return texnum;
 	}
 
-	Sys_Error ("Scrap_AllocBlock: full");
+	Sys_Error ("Scrap_AllocBlock: full"); //johnfitz -- correct function name
 	return 0; //johnfitz -- shut up compiler
 }
 
@@ -138,12 +132,11 @@ void Scrap_Upload (void)
 	char name[8];
 	int	i;
 	
-	scrap_uploads++;
-
 	for (i=0; i<MAX_SCRAPS; i++)
 	{
-		sprintf (name, "scrap_%i", i);
-		scrap_textures[i] = TexMgr_LoadImage8 (name, BLOCK_WIDTH, BLOCK_HEIGHT, scrap_texels[i], TEXPREF_ALPHA);
+		sprintf (name, "scrap%i", i);
+		scrap_textures[i] = TexMgr_LoadImage8 (NULL, name, BLOCK_WIDTH, BLOCK_HEIGHT, scrap_texels[i], 
+			TEXPREF_ALPHA | TEXPREF_UNIQUE | TEXPREF_NOPICMIP);
 	}
 
 	scrap_dirty = false;
@@ -184,11 +177,11 @@ qpic_t *Draw_PicFromWad (char *name)
 	}
 	else
 	{
-		gl->gltexture = TexMgr_LoadImage8 (name, p->width, p->height, p->data, TEXPREF_ALPHA | TEXPREF_PAD); //johnfitz -- TexMgr_LoadImage8
+		gl->gltexture = TexMgr_LoadImage8 (NULL, name, p->width, p->height, p->data, TEXPREF_ALPHA | TEXPREF_PAD | TEXPREF_NOPICMIP); //johnfitz -- TexMgr_LoadImage8
 		gl->sl = 0;
-		gl->sh = (float)p->width/(float)Pad(p->width); //johnfitz -- account for padding
+		gl->sh = (float)p->width/(float)TexMgr_PadConditional(p->width); //johnfitz
 		gl->tl = 0;
-		gl->th = (float)p->height/(float)Pad(p->height); //johnfitz -- account for padding
+		gl->th = (float)p->height/(float)TexMgr_PadConditional(p->height); //johnfitz
 	}
 
 	return p;
@@ -233,11 +226,11 @@ qpic_t	*Draw_CachePic (char *path)
 	pic->pic.height = dat->height;
 
 	gl = (glpic_t *)pic->pic.data;
-	gl->gltexture = TexMgr_LoadImage8 (path, dat->width, dat->height, dat->data, TEXPREF_ALPHA | TEXPREF_PAD); //johnfitz -- TexMgr_LoadImage8
+	gl->gltexture = TexMgr_LoadImage8 (NULL, path, dat->width, dat->height, dat->data, TEXPREF_ALPHA | TEXPREF_PAD | TEXPREF_NOPICMIP); //johnfitz -- TexMgr_LoadImage8
 	gl->sl = 0;
-	gl->sh = (float)dat->width/(float)Pad(dat->width); //johnfitz -- account for padding
+	gl->sh = (float)dat->width/(float)TexMgr_PadConditional(dat->width); //johnfitz
 	gl->tl = 0;
-	gl->th = (float)dat->height/(float)Pad(dat->height); //johnfitz -- account for padding
+	gl->th = (float)dat->height/(float)TexMgr_PadConditional(dat->height); //johnfitz
 
 	return &pic->pic;
 }
@@ -259,7 +252,7 @@ void Draw_LoadConchars (void)
 		if (data[i] == 0)
 			data[i] = 255;
 
-	char_texture = TexMgr_LoadImage8 ("conchars", 128, 128, data, TEXPREF_ALPHA | TEXPREF_NEAREST);
+	char_texture = TexMgr_LoadImage8 (NULL, "conchars", 128, 128, data, TEXPREF_ALPHA | TEXPREF_NEAREST | TEXPREF_NOPICMIP);
 }
 
 /*
@@ -331,19 +324,19 @@ Draw_InitPics -- johnfitz -- init internal pics
 */
 void Draw_InitPics (void)
 {
-	int flags = TEXPREF_NEAREST | TEXPREF_ALPHA | TEXPREF_PERSIST;
+	int flags = TEXPREF_NEAREST | TEXPREF_ALPHA | TEXPREF_PERSIST | TEXPREF_NOPICMIP;
 
 	// stipple texture
-	pic_stipple_texture = TexMgr_LoadImage8 ("pic_stipple_texture", 8, 8, &pic_stipple[0][0], flags);
+	pic_stipple_texture = TexMgr_LoadImage8 (NULL, "pic_stipple_texture", 8, 8, &pic_stipple[0][0], flags);
 
 	// text insert cursor
-	pic_ins_texture = TexMgr_LoadImage8 ("pic_ins_texture", 8, 8, &pic_ins[0][0], flags);
+	pic_ins_texture = TexMgr_LoadImage8 (NULL, "pic_ins_texture", 8, 8, &pic_ins[0][0], flags);
 
 	// text overwrite cursor
-	pic_ovr_texture = TexMgr_LoadImage8 ("pic_ovr_texture", 8, 8, &pic_ovr[0][0], flags);
+	pic_ovr_texture = TexMgr_LoadImage8 (NULL, "pic_ovr_texture", 8, 8, &pic_ovr[0][0], flags);
 
 	// crosshair
-	pic_crosshair_texture = TexMgr_LoadImage8 ("pic_crosshair_texture", 8, 8, &pic_crosshair[0][0], flags);
+	pic_crosshair_texture = TexMgr_LoadImage8 (NULL, "pic_crosshair_texture", 8, 8, &pic_crosshair[0][0], flags);
 
 	// mouse cursor
 }
@@ -358,12 +351,6 @@ void Draw_NewGame (void)
 	gltexture_t	*glt;
 	cachepic_t	*pic;
 	int			i;
-
-	// purge textures
-	TexMgr_FreeTextures (0, TEXPREF_PERSIST); //deletes all textures where TEXPREF_PERSIST is 0
-
-	// reload palette
-	TexMgr_LoadPalette ();
 
 	// empty scrap and reallocate gltextures
 	memset(&scrap_allocated, 0, sizeof(scrap_allocated));
@@ -412,25 +399,13 @@ void Draw_Init (void)
 
 /*
 ================
-Draw_Character
-
-Draws one 8*8 graphics character with 0 being transparent.
-It can be clipped to the top of the screen to allow the console to be
-smoothly scrolled off.
+Draw_CharacterQuad -- johnfitz -- seperate function to spit out verts
 ================
 */
-void Draw_Character (int x, int y, int num)
+void Draw_CharacterQuad (int x, int y, char num)
 {	
 	int				row, col;
 	float			frow, fcol, size;
-
-	if (num == 32)
-		return;		// space
-
-	num &= 255;
-	
-	if (y <= -8)
-		return;			// totally off screen
 
 	row = num>>4;
 	col = num&15;
@@ -439,9 +414,6 @@ void Draw_Character (int x, int y, int num)
 	fcol = col*0.0625;
 	size = 0.0625;
 
-	GL_Bind (char_texture);
-
-	glBegin (GL_QUADS);
 	glTexCoord2f (fcol, frow);
 	glVertex2f (x, y);
 	glTexCoord2f (fcol + size, frow);
@@ -450,22 +422,49 @@ void Draw_Character (int x, int y, int num)
 	glVertex2f (x+8, y+8);
 	glTexCoord2f (fcol, frow + size);
 	glVertex2f (x, y+8);
+}
+
+/*
+================
+Draw_Character -- johnfitz -- modified to call Draw_CharacterQuad
+================
+*/
+void Draw_Character (int x, int y, int num)
+{	
+	if (y <= -8)
+		return;			// totally off screen
+	
+	num &= 255;
+
+	GL_Bind (char_texture);
+	glBegin (GL_QUADS);
+
+	Draw_CharacterQuad (x, y, (char) num);
+
 	glEnd ();
 }
 
 /*
 ================
-Draw_String
+Draw_String -- johnfitz -- modified to call Draw_CharacterQuad
 ================
 */
 void Draw_String (int x, int y, char *str)
 {
+	if (y <= -8)
+		return;			// totally off screen
+
+	GL_Bind (char_texture);
+	glBegin (GL_QUADS);
+
 	while (*str)
 	{
-		Draw_Character (x, y, *str);
+		Draw_CharacterQuad (x, y, *str);
 		str++;
 		x += 8;
 	}
+
+	glEnd ();
 }
 
 /*
@@ -525,7 +524,7 @@ void Draw_TransPicTranslate (int x, int y, qpic_t *pic, byte *translation)
 		}
 	}
 
-	translate_texture = TexMgr_LoadImage32 ("translate_texture", 64, 64, trans, TEXPREF_ALPHA); //johnfitz
+	translate_texture = TexMgr_LoadImage32 (NULL, "translate_texture", 64, 64, trans, TEXPREF_ALPHA); //johnfitz
 	GL_Bind (translate_texture);
 
 	glColor4f (1,1,1,1);
@@ -540,26 +539,6 @@ void Draw_TransPicTranslate (int x, int y, qpic_t *pic, byte *translation)
 	glVertex2f (x, y+pic->height);
 	glEnd ();
 	//johnfitz
-}
-
-/*
-=============
-Draw_AlphaPic -- only used by Draw_ConsoleBackground
-=============
-*/
-void Draw_AlphaPic (int x, int y, qpic_t *pic, float alpha)
-{
-	glEnable (GL_BLEND);
-	glColor4f (1,1,1,alpha);
-	glDisable (GL_ALPHA_TEST);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-	Draw_Pic (x, y, pic);
-
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glEnable (GL_ALPHA_TEST);
-	glDisable (GL_BLEND);
-	glColor4f (1,1,1,1);
 }
 
 /*
@@ -580,7 +559,26 @@ void Draw_ConsoleBackground (void)
 
 //	GL_SetCanvas (CANVAS_CONSOLE); //in case this is called from weird places
 
-	Draw_AlphaPic (0, 0, pic, alpha);
+	if (alpha > 0.0)
+	{
+		if (alpha < 1.0)
+		{
+			glEnable (GL_BLEND);
+			glColor4f (1,1,1,alpha);
+			glDisable (GL_ALPHA_TEST);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+		}
+
+		Draw_Pic (0, 0, pic);
+
+		if (alpha < 1.0)
+		{
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+			glEnable (GL_ALPHA_TEST);
+			glDisable (GL_BLEND);
+			glColor4f (1,1,1,1);
+		}
+	}
 }
 
 
@@ -676,11 +674,16 @@ Call before beginning any disc IO.
 */
 void Draw_BeginDisc (void)
 {
+	int previous_canvas = currentcanvas; //johnfitz
+
 	if (!draw_disc)
 		return;
+
+	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
 	glDrawBuffer  (GL_FRONT);
 	Draw_Pic (glwidth - 24, 0, draw_disc);
 	glDrawBuffer  (GL_BACK);
+	GL_SetCanvas (previous_canvas); //johnfitz
 }
 
 /*
@@ -688,7 +691,6 @@ void Draw_BeginDisc (void)
 GL_SetCanvas -- johnfitz -- support various canvas types
 ================
 */
-int currentcanvas = -1;
 void GL_SetCanvas (int canvastype)
 {
 	float s, w;
@@ -732,6 +734,12 @@ void GL_SetCanvas (int canvastype)
 			glViewport (glx + (glwidth - 320*s) / 2, gly, 320*s, 48*s);
 		}
 		break;
+	case CANVAS_WARPIMAGE:
+		glOrtho (0, 128, 0, 128, -99999, 99999);
+		glViewport (glx, gly+glheight-gl_warpimagesize, gl_warpimagesize, gl_warpimagesize);
+		break;
+	default:
+		Sys_Error ("GL_SetCanvas: bad canvas type");
 	}
 
 	glMatrixMode(GL_MODELVIEW);

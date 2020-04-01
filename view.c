@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -436,6 +436,11 @@ void V_CalcBlend (void)
 		if (!gl_cshiftpercent.value)
 			continue;
 
+		//johnfitz -- only apply leaf contents color shifts during intermission
+		if (cl.intermission && j != CSHIFT_CONTENTS)
+			continue;
+		//johnfitz
+
 		a2 = ((cl.cshifts[j].percent * gl_cshiftpercent.value) / 100.0) / 255.0;
 		if (!a2)
 			continue;
@@ -506,7 +511,7 @@ V_PolyBlend -- johnfitz -- moved here from gl_rmain.c, and rewritten to use glOr
 */
 void V_PolyBlend (void)
 {
-	if (!gl_polyblend.value || !v_blend[3] || cl.intermission)
+	if (!gl_polyblend.value || !v_blend[3])
 		return;
 
 	GL_DisableMultitexture();

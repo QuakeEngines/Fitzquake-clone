@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002 John Fitzgibbons and others
+Copyright (C) 2002-2003 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -35,8 +35,6 @@ void GL_BeginRendering (int *x, int *y, int *width, int *height);
 void GL_EndRendering (void);
 
 //johnfitz -- removed texture object stuff since they are standard in gl 1.1
-
-extern	float	gldepthmin, gldepthmax;
 
 typedef struct
 {
@@ -74,7 +72,7 @@ extern	PROC glVertexPointerEXT;
 
 void R_TimeRefresh_f (void);
 void R_ReadPointFile_f (void);
-texture_t *R_TextureAnimation (texture_t *base);
+texture_t *R_TextureAnimation (texture_t *base, int frame);
 
 typedef struct surfcache_s
 {
@@ -147,7 +145,6 @@ extern	vec3_t	r_origin;
 //
 extern	refdef_t	r_refdef;
 extern	mleaf_t		*r_viewleaf, *r_oldviewleaf;
-extern	texture_t	*r_notexture_mip;
 extern	int		d_lightstylevalue[256];	// 8.8 fraction of base light value
 
 extern	qboolean	envmap;
@@ -168,17 +165,11 @@ extern	cvar_t	r_novis;
 extern	cvar_t	gl_clear;
 extern	cvar_t	gl_cull;
 extern	cvar_t	gl_poly;
-extern	cvar_t	gl_texsort;
 extern	cvar_t	gl_smoothmodels;
 extern	cvar_t	gl_affinemodels;
 extern	cvar_t	gl_polyblend;
-extern	cvar_t	gl_keeptjunctions;
 extern	cvar_t	gl_flashblend;
 extern	cvar_t	gl_nocolors;
-
-extern	int		gl_lightmap_format;
-extern	int		gl_solid_format;
-extern	int		gl_alpha_format;
 
 extern	cvar_t	gl_max_size;
 extern	cvar_t	gl_playermip;
@@ -219,11 +210,12 @@ void GL_PolygonOffset (int);
 //johnfitz
 
 //johnfitz -- GL_EXT_texture_env_combine
-//the values for GL_ARB... are identical
+//the values for GL_ARB_ are identical
 #define GL_COMBINE_EXT			0x8570
 #define GL_COMBINE_RGB_EXT		0x8571
 #define GL_RGB_SCALE_EXT		0x8573
 #define GL_PRIMARY_COLOR_EXT	0x8577
+#define GL_PREVIOUS_EXT			0x8578
 #define GL_SOURCE0_RGB_EXT		0x8580
 #define GL_SOURCE1_RGB_EXT		0x8581
 extern qboolean gl_texture_env_combine;
@@ -232,4 +224,9 @@ extern qboolean gl_texture_env_combine;
 //johnfitz -- rendering statistics
 extern int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
 extern int rs_dynamiclightmaps, rs_brushpasses, rs_aliaspasses, rs_skypasses;
+extern float rs_megatexels;
 //johnfitz
+
+int gl_warpimagesize; //johnfitz -- for water warp
+
+qboolean r_drawflat_cheatsafe, r_fullbright_cheatsafe, r_lightmap_cheatsafe; //johnfitz
