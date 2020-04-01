@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -26,8 +26,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //  GLOBAL FOG
 //
 //==============================================================================
-
-#define FOGEXP2 //comment out for linear fog
 
 float fog_density;
 float fog_red;
@@ -213,20 +211,20 @@ void Fog_ParseWorldspawn (void)
 
 /*
 =============
-Fog_SetupFrame
+Fog_GetColor
 
-called at the beginning of each frame
+calculates fog color for this frame, taking into account fade times
 =============
 */
-void Fog_SetupFrame (void)
+float *Fog_GetColor (void)
 {
-	float c[4];
-	float f, d;
+	static float c[4];
+	float f;
+	int i;
 
 	if (fade_done > cl.time)
 	{
 		f = (fade_done - cl.time) / fade_time;
-		d = f * old_density + (1.0 - f) * fog_density;
 		c[0] = f * old_red + (1.0 - f) * fog_red;
 		c[1] = f * old_green + (1.0 - f) * fog_green;
 		c[2] = f * old_blue + (1.0 - f) * fog_blue;
@@ -234,20 +232,17 @@ void Fog_SetupFrame (void)
 	}
 	else
 	{
-		d = fog_density;
 		c[0] = fog_red;
 		c[1] = fog_green;
 		c[2] = fog_blue;
 		c[3] = 1.0;
 	}
 
-	glFogfv(GL_FOG_COLOR, c);
+	//find closest 24-bit RGB value, so solid-colored sky can match the fog perfectly
+	for (i=0;i<3;i++)
+		c[i] = (float)(Q_rint(c[i] * 255)) / 255.0f;
 
-#ifdef FOGEXP2
-	glFogf(GL_FOG_DENSITY, d / 64.0);
-#else
-	glFogf(GL_FOG_END, 96.0 / max(d, 0.000001)); //don't divide by zero
-#endif
+	return c;
 }
 
 /*
@@ -268,6 +263,19 @@ float Fog_GetDensity (void)
 	}
 	else
 		return fog_density;
+}
+
+/*
+=============
+Fog_SetupFrame
+
+called at the beginning of each frame
+=============
+*/
+void Fog_SetupFrame (void)
+{
+	glFogfv(GL_FOG_COLOR, Fog_GetColor());
+	glFogf(GL_FOG_DENSITY, Fog_GetDensity() / 64.0);
 }
 
 /*
@@ -298,34 +306,30 @@ void Fog_DisableGFog (void)
 
 /*
 =============
-Fog_SetColorForSky
+Fog_StartAdditive
 
-called before drawing flat-colored sky
+called before drawing stuff that is additive blended -- sets fog color to black
 =============
 */
-void Fog_SetColorForSky (void)
+void Fog_StartAdditive (void)
 {
-	float c[3];
-	float f, d;
+	vec3_t color = {0,0,0};
 
-	if (fade_done > cl.time)
-	{
-		f = (fade_done - cl.time) / fade_time;
-		d = f * old_density + (1.0 - f) * fog_density;
-		c[0] = f * old_red + (1.0 - f) * fog_red;
-		c[1] = f * old_green + (1.0 - f) * fog_green;
-		c[2] = f * old_blue + (1.0 - f) * fog_blue;
-	}
-	else
-	{
-		d = fog_density;
-		c[0] = fog_red;
-		c[1] = fog_green;
-		c[2] = fog_blue;
-	}
+	if (Fog_GetDensity() > 0)
+		glFogfv(GL_FOG_COLOR, color);
+}
 
-	if (d > 0)
-		glColor3fv (c);
+/*
+=============
+Fog_StopAdditive
+
+called after drawing stuff that is additive blended -- restores fog color
+=============
+*/
+void Fog_StopAdditive (void)
+{
+	if (Fog_GetDensity() > 0)
+		glFogfv(GL_FOG_COLOR, Fog_GetColor());
 }
 
 //==============================================================================
@@ -377,10 +381,5 @@ void Fog_Init (void)
 	fog_green = 0.3;
 	fog_blue = 0.3;
 
-#ifdef FOGEXP2
 	glFogi(GL_FOG_MODE, GL_EXP2);
-#else
-	glFogi(GL_FOG_START, 0);
-	glFogi(GL_FOG_MODE, GL_LINEAR);
-#endif
 }

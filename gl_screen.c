@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -76,13 +76,18 @@ int			glx, gly, glwidth, glheight;
 float		scr_con_current;
 float		scr_conlines;		// lines of console to display
 
-float		oldscreensize, oldfov, oldsbarscale; //johnfitz -- added oldsbarscale
+float		oldscreensize, oldfov, oldsbarscale, oldsbaralpha; //johnfitz -- added oldsbarscale and oldsbaralpha
 
-cvar_t		scr_menuscale = {"scr_menuscale", "1", true}; //johnfitz
-cvar_t		scr_sbarscale = {"scr_sbarscale", "1", true}; //johnfitz
-cvar_t		scr_conwidth = {"scr_conwidth", "0", true}; //johnfitz
-cvar_t		scr_showfps = {"scr_showfps", "0"}; //johnfitz
-cvar_t		scr_clock = {"scr_clock", "0"}; //johnfitz
+//johnfitz -- new cvars
+cvar_t		scr_menuscale = {"scr_menuscale", "1", true};
+cvar_t		scr_sbarscale = {"scr_sbarscale", "1", true};
+cvar_t		scr_sbaralpha = {"scr_sbaralpha", "1", true};
+cvar_t		scr_conwidth = {"scr_conwidth", "0", true};
+cvar_t		scr_conscale = {"scr_conscale", "1", true};
+cvar_t		scr_crosshaircale = {"scr_crosshaircale", "1", true};
+cvar_t		scr_showfps = {"scr_showfps", "0"};
+cvar_t		scr_clock = {"scr_clock", "0"};
+//johnfitz
 
 cvar_t		scr_viewsize = {"viewsize","100", true};
 cvar_t		scr_fov = {"fov","90"};	// 10 - 170
@@ -283,7 +288,7 @@ static void SCR_CalcRefdef (void)
 	size = scr_viewsize.value;
 	scale = CLAMP (1.0, scr_sbarscale.value, (float)glwidth / 320.0);
 
-	if (size >= 120 || cl.intermission) //intermission is always full screen
+	if (size >= 120 || cl.intermission || scr_sbaralpha.value < 1) //johnfitz -- scr_sbaralpha.value
 		sb_lines = 0;
 	else if (size >= 110)
 		sb_lines = 24 * scale;
@@ -336,15 +341,15 @@ void SCR_SizeDown_f (void)
 
 /*
 ==================
-SCR_Conwidth_f -- johnfitz -- called when scr_conwidth changes
+SCR_Conwidth_f -- johnfitz -- called when scr_conwidth or scr_conscale changes
 ==================
 */
 void SCR_Conwidth_f (void)
 {
-	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : glwidth;
-	vid.conwidth = CLAMP (320, vid.conwidth, glwidth);
+	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
+	vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
 	vid.conwidth &= 0xFFFFFFF8;
-	vid.conheight = vid.conwidth * glheight / glwidth;
+	vid.conheight = vid.conwidth * vid.height / vid.width;
 }
 
 //============================================================================
@@ -370,7 +375,10 @@ void SCR_Init (void)
 	//johnfitz -- new cvars
 	Cvar_RegisterVariable (&scr_menuscale, NULL);
 	Cvar_RegisterVariable (&scr_sbarscale, NULL);
+	Cvar_RegisterVariable (&scr_sbaralpha, NULL);
 	Cvar_RegisterVariable (&scr_conwidth, &SCR_Conwidth_f);
+	Cvar_RegisterVariable (&scr_conscale, &SCR_Conwidth_f);
+	Cvar_RegisterVariable (&scr_crosshaircale, NULL);
 	Cvar_RegisterVariable (&scr_showfps, NULL);
 	Cvar_RegisterVariable (&scr_clock, NULL);
 	//johnfitz
@@ -429,12 +437,14 @@ void SCR_DrawFPS (void)
 	if (scr_showfps.value) //draw it
 	{
 		sprintf (str, "%4.0f fps", fps);
-		x = glwidth - (strlen(str)<<3);
-		y = glheight - sb_lines - 8;
+		x = 320 - (strlen(str)<<3);
+		y = 200 - 8;
 		if (scr_clock.value) y -= 8; //make room for clock
+		GL_SetCanvas (CANVAS_BOTTOMRIGHT);
 		Draw_String (x, y, str);
 		scr_tileclear_updates = 0;
 	}
+
 }
 
 /*
@@ -491,9 +501,57 @@ void SCR_DrawClock (void)
 	else
 		return;
 
-	Draw_String (glwidth - (strlen(str)<<3), glheight - sb_lines - 8, str);
+	//draw it
+	GL_SetCanvas (CANVAS_BOTTOMRIGHT);
+	Draw_String (320 - (strlen(str)<<3), 200 - 8, str);
 
 	scr_tileclear_updates = 0;
+}
+
+/*
+==============
+SCR_DrawDevStats
+==============
+*/
+void SCR_DrawDevStats (void)
+{
+	char	str[40];
+	int		y = 25-9; //9=number of lines to print
+	int		x = 0; //margin
+
+	if (!devstats.value)
+		return;
+
+	GL_SetCanvas (CANVAS_BOTTOMLEFT);
+
+	Draw_Fill (x, y*8, 19*8, 9*8, 0, 0.5); //dark rectangle
+
+	sprintf (str, "devstats |Curr Peak");
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "---------+---------");
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Edicts   |%4i %4i", dev_stats.edicts, dev_peakstats.edicts);
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Packet   |%4i %4i", dev_stats.packetsize, dev_peakstats.packetsize);
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Visedicts|%4i %4i", dev_stats.visedicts, dev_peakstats.visedicts);
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Efrags   |%4i %4i", dev_stats.efrags, dev_peakstats.efrags);
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Dlights  |%4i %4i", dev_stats.dlights, dev_peakstats.dlights);
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Beams    |%4i %4i", dev_stats.beams, dev_peakstats.beams);
+	Draw_String (x, (y++)*8-x, str);
+
+	sprintf (str, "Tempents |%4i %4i", dev_stats.tempents, dev_peakstats.tempents);
+	Draw_String (x, (y++)*8-x, str);
 }
 
 /*
@@ -508,6 +566,8 @@ void SCR_DrawRam (void)
 
 	if (!r_cache_thrash)
 		return;
+
+	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
 
 	Draw_Pic (scr_vrect.x+32, scr_vrect.y, scr_ram);
 }
@@ -534,6 +594,8 @@ void SCR_DrawTurtle (void)
 	if (count < 3)
 		return;
 
+	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
+
 	Draw_Pic (scr_vrect.x, scr_vrect.y, scr_turtle);
 }
 
@@ -548,6 +610,8 @@ void SCR_DrawNet (void)
 		return;
 	if (cls.demoplayback)
 		return;
+
+	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
 
 	Draw_Pic (scr_vrect.x+64, scr_vrect.y, scr_net);
 }
@@ -593,6 +657,20 @@ void SCR_DrawLoading (void)
 	Draw_Pic ( (320 - pic->width)/2, (240 - 48 - pic->height)/2, pic); //johnfitz -- stretched menus
 
 	scr_tileclear_updates = 0; //johnfitz
+}
+
+/*
+==============
+SCR_DrawCrosshair -- johnfitz
+==============
+*/
+void SCR_DrawCrosshair (void)
+{
+	if (!crosshair.value)
+		return;
+
+	GL_SetCanvas (CANVAS_CROSSHAIR);
+	Draw_Character (-4, -4, '+'); //0,0 is center of viewport
 }
 
 
@@ -683,20 +761,17 @@ void SCR_DrawConsole (void)
 
 /*
 ==================
-SCR_ScreenShot_f
+SCR_ScreenShot_f -- johnfitz -- rewritten to use Image_WriteTGA
 ==================
 */
 void SCR_ScreenShot_f (void)
 {
-	byte		*buffer;
-	char		tganame[16];  //johnfitz -- was [80]
-	char		checkname[MAX_OSPATH];
-	int			i, c, temp;
+	byte	*buffer;
+	char	tganame[16];  //johnfitz -- was [80]
+	char	checkname[MAX_OSPATH];
+	int		i;
 
-//
 // find a file name to save it to
-//
-	//johnfitz -- changed name format from quake00 to fitz0000
 	for (i=0; i<10000; i++)
 	{
 		sprintf (tganame, "fitz%04i.tga", i);
@@ -706,35 +781,21 @@ void SCR_ScreenShot_f (void)
 	}
 	if (i == 10000)
 	{
-		Con_Printf ("SCR_ScreenShot_f: Couldn't create a TGA file\n"); //johnfitz -- TGA, not PCX!
+		Con_Printf ("SCR_ScreenShot_f: Couldn't find an unused filename\n");
 		return;
  	}
-	//johnfitz
 
+//get data
+	buffer = malloc(glwidth*glheight*3);
+	glReadPixels (glx, gly, glwidth, glheight, GL_RGB, GL_UNSIGNED_BYTE, buffer);
 
-	buffer = malloc(glwidth*glheight*3 + 18); //FIXME: use Hunk_Alloc?
-	memset (buffer, 0, 18);
-	buffer[2] = 2;		// uncompressed type
-	buffer[12] = glwidth&255;
-	buffer[13] = glwidth>>8;
-	buffer[14] = glheight&255;
-	buffer[15] = glheight>>8;
-	buffer[16] = 24;	// pixel size
-
-	glReadPixels (glx, gly, glwidth, glheight, GL_RGB, GL_UNSIGNED_BYTE, buffer+18);
-
-	// swap rgb to bgr
-	c = 18+glwidth*glheight*3;
-	for (i=18 ; i<c ; i+=3)
-	{
-		temp = buffer[i];
-		buffer[i] = buffer[i+2];
-		buffer[i+2] = temp;
-	}
-	COM_WriteFile (tganame, buffer, glwidth*glheight*3 + 18 );
+// now write the file
+	if (Image_WriteTGA (tganame, buffer, glwidth, glheight, 24, false))
+		Con_Printf ("Wrote %s\n", tganame);
+	else
+		Con_Printf ("SCR_ScreenShot_f: Couldn't create a TGA file\n");
 
 	free (buffer);
-	Con_Printf ("Wrote %s\n", tganame);
 }
 
 
@@ -883,7 +944,7 @@ SCR_TileClear -- johnfitz -- modified to use glwidth/glheight instead of vid.wid
 */
 void SCR_TileClear (void)
 {
-	if (scr_tileclear_updates >= vid.numpages && !gl_clear.value)
+	if (scr_tileclear_updates >= vid.numpages && !gl_clear.value && !isIntelVideo) //intel video workarounds from Baker
 		return;
 	scr_tileclear_updates++;
 
@@ -969,11 +1030,19 @@ void SCR_UpdateScreen (void)
 		vid.recalc_refdef = true;
 	}
 
+	//johnfitz -- added oldsbarscale and oldsbaralpha
 	if (oldsbarscale != scr_sbarscale.value)
 	{
 		oldsbarscale = scr_sbarscale.value;
 		vid.recalc_refdef = true;
 	}
+
+	if (oldsbaralpha != scr_sbaralpha.value)
+	{
+		oldsbaralpha = scr_sbaralpha.value;
+		vid.recalc_refdef = true;
+	}
+	//johnfitz
 
 	if (vid.recalc_refdef)
 		SCR_CalcRefdef ();
@@ -1012,17 +1081,16 @@ void SCR_UpdateScreen (void)
 	}
 	else
 	{
-		if (crosshair.value)
-			Draw_Character (scr_vrect.x + scr_vrect.width/2, scr_vrect.y + scr_vrect.height/2, '+');
-
-		SCR_DrawFPS (); //johnfitz
-		SCR_DrawClock (); //johnfitz
+		SCR_DrawCrosshair (); //johnfitz
 		SCR_DrawRam ();
 		SCR_DrawNet ();
 		SCR_DrawTurtle ();
 		SCR_DrawPause ();
 		SCR_CheckDrawCenterString ();
 		Sbar_Draw ();
+		SCR_DrawDevStats (); //johnfitz
+		SCR_DrawFPS (); //johnfitz
+		SCR_DrawClock (); //johnfitz
 		SCR_DrawConsole ();
 		M_Draw ();
 	}

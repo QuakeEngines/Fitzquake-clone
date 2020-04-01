@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -403,9 +403,9 @@ int WINS_Read (int socket, byte *buf, int len, struct qsockaddr *addr)
 	ret = precvfrom (socket, buf, len, 0, (struct sockaddr *)addr, &addrlen);
 	if (ret == -1)
 	{
-		int errno = pWSAGetLastError();
+		int err = pWSAGetLastError();
 
-		if (errno == WSAEWOULDBLOCK || errno == WSAECONNREFUSED)
+		if (err == WSAEWOULDBLOCK || err == WSAECONNREFUSED)
 			return 0;
 
 	}

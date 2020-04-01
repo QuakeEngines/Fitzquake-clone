@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -34,6 +34,8 @@ cvar_t  registered = {"registered","0"};
 cvar_t  cmdline = {"cmdline","", false, true};
 
 qboolean        com_modified;   // set true if using non-id files
+
+int com_nummissionpacks; //johnfitz
 
 qboolean		proghack;
 
@@ -594,15 +596,41 @@ void MSG_WriteString (sizebuf_t *sb, char *s)
 		SZ_Write (sb, s, Q_strlen(s)+1);
 }
 
+//johnfitz -- original behavior, 13.3 fixed point coords, max range +-4096
+void MSG_WriteCoord16 (sizebuf_t *sb, float f)
+{
+	MSG_WriteShort (sb, Q_rint(f*8));
+}
+
+//johnfitz -- 16.8 fixed point coords, max range +-32768
+void MSG_WriteCoord24 (sizebuf_t *sb, float f)
+{
+	MSG_WriteShort (sb, f);
+	MSG_WriteByte (sb, (int)(f*255)%255);
+}
+
+//johnfitz -- 32-bit float coords
+void MSG_WriteCoord32f (sizebuf_t *sb, float f)
+{
+	MSG_WriteFloat (sb, f);
+}
+
 void MSG_WriteCoord (sizebuf_t *sb, float f)
 {
-	MSG_WriteShort (sb, (int)(f*8));
+	MSG_WriteCoord16 (sb, f);
 }
 
 void MSG_WriteAngle (sizebuf_t *sb, float f)
 {
-	MSG_WriteByte (sb, ((int)f*256/360) & 255);
+	MSG_WriteByte (sb, Q_rint(f * 256.0 / 360.0) & 255); //johnfitz -- use Q_rint instead of (int)
 }
+
+//johnfitz -- for PROTOCOL_FITZQUAKE
+void MSG_WriteAngle16 (sizebuf_t *sb, float f)
+{
+	MSG_WriteShort (sb, Q_rint(f * 65536.0 / 360.0) & 65535);
+}
+//johnfitz
 
 //
 // reading functions
@@ -727,15 +755,40 @@ char *MSG_ReadString (void)
 	return string;
 }
 
-float MSG_ReadCoord (void)
+//johnfitz -- original behavior, 13.3 fixed point coords, max range +-4096
+float MSG_ReadCoord16 (void)
 {
 	return MSG_ReadShort() * (1.0/8);
+}
+
+//johnfitz -- 16.8 fixed point coords, max range +-32768
+float MSG_ReadCoord24 (void)
+{
+	return MSG_ReadShort() + MSG_ReadByte() * (1.0/255);
+}
+
+//johnfitz -- 32-bit float coords
+float MSG_ReadCoord32f (void)
+{
+	return MSG_ReadFloat();
+}
+
+float MSG_ReadCoord (void)
+{
+	return MSG_ReadCoord16();
 }
 
 float MSG_ReadAngle (void)
 {
 	return MSG_ReadChar() * (360.0/256);
 }
+
+//johnfitz -- for PROTOCOL_FITZQUAKE
+float MSG_ReadAngle16 (void)
+{
+	return MSG_ReadShort() * (360.0 / 65536);
+}
+//johnfitz
 
 
 
@@ -1121,7 +1174,7 @@ void COM_InitArgv (int argc, char **argv)
 		standard_quake = false;
 	}
 
-	if (COM_CheckParm ("-hipnotic"))
+	if (COM_CheckParm ("-hipnotic") || COM_CheckParm ("-quoth")) //johnfitz -- "-quoth" support
 	{
 		hipnotic = true;
 		standard_quake = false;
@@ -1776,10 +1829,25 @@ void COM_InitFilesystem () //johnfitz -- modified based on topaz's tutorial
 	COM_AddGameDirectory (va("%s/"GAMENAME, basedir) );
 	strcpy (com_gamedir, va("%s/"GAMENAME, basedir));
 
+	//johnfitz -- track number of mission packs added
+	//since we don't want to allow the "game" command to strip them away
+	com_nummissionpacks = 0;
 	if (COM_CheckParm ("-rogue"))
+	{
 		COM_AddGameDirectory (va("%s/rogue", basedir) );
+		com_nummissionpacks++;
+	}
 	if (COM_CheckParm ("-hipnotic"))
+	{
 		COM_AddGameDirectory (va("%s/hipnotic", basedir) );
+		com_nummissionpacks++;
+	}
+	if (COM_CheckParm ("-quoth"))
+	{
+		COM_AddGameDirectory (va("%s/quoth", basedir) );
+		com_nummissionpacks++;
+	}
+	//johnfitz
 
 	i = COM_CheckParm ("-game");
 	if (i && i < com_argc-1)

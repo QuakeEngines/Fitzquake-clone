@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -43,7 +43,6 @@ qboolean	onground;
 usercmd_t	cmd;
 
 cvar_t	sv_idealpitchscale = {"sv_idealpitchscale","0.8"};
-
 cvar_t	sv_altnoclip = {"sv_altnoclip","1",true}; //johnfitz
 
 /*
@@ -450,7 +449,12 @@ void SV_ReadClientMove (usercmd_t *move)
 
 // read current angles
 	for (i=0 ; i<3 ; i++)
-		angle[i] = MSG_ReadAngle ();
+		//johnfitz -- 16-bit angles for PROTOCOL_FITZQUAKE
+		if (sv.protocol == PROTOCOL_NETQUAKE)
+			angle[i] = MSG_ReadAngle ();
+		else
+			angle[i] = MSG_ReadAngle16 ();
+		//johnfitz
 
 	VectorCopy (angle, host_client->edict->v.v_angle);
 

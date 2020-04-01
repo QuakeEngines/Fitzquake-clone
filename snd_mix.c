@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -36,7 +36,7 @@ short	*snd_out;
 
 void Snd_WriteLinearBlastStereo16 (void);
 
-#if	!id386
+//#if	!id386 //johnfitz -- removing ASM code from fitzquake
 void Snd_WriteLinearBlastStereo16 (void)
 {
 	int		i;
@@ -61,7 +61,7 @@ void Snd_WriteLinearBlastStereo16 (void)
 			snd_out[i+1] = val;
 	}
 }
-#endif
+//#endif  //!id386 //johnfitz -- removing ASM code from fitzquake
 
 void S_TransferStereo16 (int endtime)
 {
@@ -342,7 +342,7 @@ void SND_InitScaletable (void)
 }
 
 
-#if	!id386
+//#if	!id386//johnfitz -- removing ASM code from fitzquake
 
 void SND_PaintChannelFrom8 (channel_t *ch, sfxcache_t *sc, int count)
 {
@@ -370,7 +370,7 @@ void SND_PaintChannelFrom8 (channel_t *ch, sfxcache_t *sc, int count)
 	ch->pos += count;
 }
 
-#endif	// !id386
+//#endif	// !id386//johnfitz -- removing ASM code from fitzquake
 
 
 void SND_PaintChannelFrom16 (channel_t *ch, sfxcache_t *sc, int count)

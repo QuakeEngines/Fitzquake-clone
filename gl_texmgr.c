@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -22,18 +22,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-#ifdef _DEBUG
-#include "imdebug-0.931b-bin/imdebug.h"
-#endif
-
 cvar_t		gl_texture_anisotropy = {"gl_texture_anisotropy", "1", true};
 cvar_t		gl_max_size = {"gl_max_size", "0"};
 cvar_t		gl_picmip = {"gl_picmip", "0"};
 int			gl_hardware_maxsize;
-int			gl_solid_format = 3;
-int			gl_alpha_format = 4;
+const int	gl_solid_format = 3;
+const int	gl_alpha_format = 4;
 
-#define	MAX_GLTEXTURES	1024
+#define	MAX_GLTEXTURES	2048
 gltexture_t	*active_gltextures, *free_gltextures;
 int numgltextures;
 
@@ -213,6 +209,50 @@ void TexMgr_Imagelist_f (void)
 
 /*
 ===============
+TexMgr_Imagedump_f -- dump all current textures to TGA files
+===============
+*/
+void TexMgr_Imagedump_f (void)
+{
+	char tganame[MAX_OSPATH], tempname[MAX_OSPATH], dirname[MAX_OSPATH];
+	gltexture_t	*glt;
+	byte *buffer;
+	char *c;
+
+	//create directory
+	sprintf(dirname, "%s/imagedump", com_gamedir);
+	Sys_mkdir (dirname);
+
+	//loop through textures
+	for (glt=active_gltextures; glt; glt=glt->next)
+	{
+		Q_strcpy(tempname, glt->name);
+		while (c = strchr(tempname, ':')) *c = '_';
+		while (c = strchr(tempname, '/')) *c = '_';
+		while (c = strchr(tempname, '*')) *c = '_';
+		sprintf(tganame, "imagedump/%s.tga", tempname);
+
+		GL_Bind (glt);
+		if (glt->flags & TEXPREF_ALPHA)
+		{
+			buffer = malloc(glt->width*glt->height*4);
+			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+			Image_WriteTGA (tganame, buffer, glt->width, glt->height, 32, true);
+		}
+		else
+		{
+			buffer = malloc(glt->width*glt->height*3);
+			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
+			Image_WriteTGA (tganame, buffer, glt->width, glt->height, 24, true);
+		}
+		free (buffer);
+	}
+
+	Con_Printf ("dumped %i textures to %s\n", numgltextures, dirname);
+}
+
+/*
+===============
 TexMgr_FrameUsage -- report texture memory usage for this frame
 ===============
 */
@@ -296,17 +336,17 @@ void TexMgr_FreeTexture (gltexture_t *kill)
 
 	if (kill == NULL)
 	{
-//		Con_Printf ("TexMgr_FreeTexture: NULL texture\n");
+		Con_Printf ("TexMgr_FreeTexture: NULL texture\n");
 		return;
 	}
-
-	glDeleteTextures(1, &kill->texnum);
 
 	if (active_gltextures == kill)
 	{
 		active_gltextures = kill->next;
 		kill->next = free_gltextures;
 		free_gltextures = kill;
+
+		glDeleteTextures(1, &kill->texnum);
 		numgltextures--;
 		return;
 	}
@@ -317,11 +357,13 @@ void TexMgr_FreeTexture (gltexture_t *kill)
 			glt->next = kill->next;
 			kill->next = free_gltextures;
 			free_gltextures = kill;
+
+			glDeleteTextures(1, &kill->texnum);
 			numgltextures--;
 			return;
 		}
 
-//	Con_Printf ("TexMgr_FreeTexture: not found\n");
+	Con_Printf ("TexMgr_FreeTexture: not found\n");
 }
 
 /*
@@ -333,36 +375,13 @@ compares each bit in "flags" to the one in glt->flags only if that bit is active
 */
 void TexMgr_FreeTextures (int flags, int mask)
 {
-	gltexture_t *glt, *kill;
+	gltexture_t *glt, *next;
 
-	//clear out the front of the list
-	while (active_gltextures && (active_gltextures->flags & mask) == (flags & mask))
+	for (glt = active_gltextures; glt; glt = next)
 	{
-		kill = active_gltextures;
-
-		numgltextures--;
-		glDeleteTextures(1, &kill->texnum);
-
-		active_gltextures = active_gltextures->next;
-		kill->next = free_gltextures;
-		free_gltextures = kill;
-	}
-
-	//clear out the rest of the list (if any are left)
-	for (glt = active_gltextures; glt; )
-	{
-		kill = glt->next;
-		if (kill && (kill->flags & mask) == (flags & mask))
-		{
-			numgltextures--;
-			glDeleteTextures(1, &kill->texnum);
-
-			glt->next = kill->next;
-			kill->next = free_gltextures;
-			free_gltextures = kill;
-		}
-		else
-			glt = glt->next;
+		next = glt->next;
+		if ((glt->flags & mask) == (flags & mask))
+			TexMgr_FreeTexture (glt);
 	}
 }
 
@@ -373,36 +392,13 @@ TexMgr_FreeTexturesForOwner
 */
 void TexMgr_FreeTexturesForOwner (model_t *owner)
 {
-	gltexture_t *glt, *kill;
+	gltexture_t *glt, *next;
 
-	//clear out the front of the list
-	while (active_gltextures && active_gltextures->owner == owner)
+	for (glt = active_gltextures; glt; glt = next)
 	{
-		kill = active_gltextures;
-
-		numgltextures--;
-		glDeleteTextures(1, &kill->texnum);
-
-		active_gltextures = active_gltextures->next;
-		kill->next = free_gltextures;
-		free_gltextures = kill;
-	}
-
-	//clear out the rest of the list (if any are left)
-	for (glt = active_gltextures; glt; )
-	{
-		kill = glt->next;
-		if (kill && kill->owner == owner)
-		{
-			numgltextures--;
-			glDeleteTextures(1, &kill->texnum);
-
-			glt->next = kill->next;
-			kill->next = free_gltextures;
-			free_gltextures = kill;
-		}
-		else
-			glt = glt->next;
+		next = glt->next;
+		if (glt && glt->owner == owner)
+			TexMgr_FreeTexture (glt);
 	}
 }
 
@@ -422,6 +418,7 @@ TexMgr_LoadPalette -- johnfitz -- was VID_SetPalette, moved here, renamed, rewri
 void TexMgr_LoadPalette (void)
 {
 	byte mask[] = {255,255,255,0};
+	byte black[] = {0,0,0,255};
 	byte *pal, *src, *dst;
 	int i, mark;
 	FILE *f;
@@ -447,8 +444,7 @@ void TexMgr_LoadPalette (void)
 	}
 	d_8to24table[255] &= *(int *)mask;
 
-	//fullbright palette, 0-223 are transparent
-	memset (d_8to24table_fbright, 0, 224*4);
+	//fullbright palette, 0-223 are black (for additive blending)
 	src = pal + 224*3;
 	dst = (byte *)(d_8to24table_fbright) + 224*4;
 	for (i=224; i<256; i++)
@@ -458,6 +454,21 @@ void TexMgr_LoadPalette (void)
 		*dst++ = *src++;
 		*dst++ = 255;
 	}
+	for (i=0; i<224; i++)
+		d_8to24table_fbright[i] = *(int *)black;
+
+	//nobright palette, 224-255 are black (for additive blending)
+	dst = (byte *)d_8to24table_nobright;
+	src = pal;
+	for (i=0; i<256; i++)
+	{
+		*dst++ = *src++;
+		*dst++ = *src++;
+		*dst++ = *src++;
+		*dst++ = 255;
+	}
+	for (i=224; i<256; i++)
+		d_8to24table_nobright[i] = *(int *)black;
 
 	//conchars palette, 0 and 255 are transparent
 	memcpy(d_8to24table_conchars, d_8to24table, 256*4);
@@ -535,13 +546,13 @@ void TexMgr_Init (void)
 {
 	int i, mark;
 	static byte notexture_data[16] = {159,91,83,255,0,0,0,255,0,0,0,255,159,91,83,255}; //black and pink checker
-	static byte nulltexture_data[16] = {150,150,150,255,0,0,0,255,0,0,0,255,150,150,150,255}; //black and grey checker
+	static byte nulltexture_data[16] = {127,191,255,255,0,0,0,255,0,0,0,255,127,191,255,255}; //black and blue checker
 	extern texture_t *r_notexture_mip, *r_notexture_mip2;
 
 	// init texture list
 	free_gltextures = (gltexture_t *) Hunk_AllocName (MAX_GLTEXTURES * sizeof(gltexture_t), "gltextures");
 	active_gltextures = NULL;
-	for (i=0; i<MAX_GLTEXTURES; i++)
+	for (i=0; i<MAX_GLTEXTURES-1; i++)
 		free_gltextures[i].next = &free_gltextures[i+1];
 	free_gltextures[i].next = NULL;
 	numgltextures = 0;
@@ -555,6 +566,7 @@ void TexMgr_Init (void)
 	Cmd_AddCommand ("gl_texturemode", &TexMgr_TextureMode_f);
 	Cmd_AddCommand ("gl_describetexturemodes", &TexMgr_DescribeTextureModes_f);
 	Cmd_AddCommand ("imagelist", &TexMgr_Imagelist_f);
+	Cmd_AddCommand ("imagedump", &TexMgr_Imagedump_f);
 
 	// poll max size from hardware
 	glGetIntegerv (GL_MAX_TEXTURE_SIZE, &gl_hardware_maxsize);
@@ -998,6 +1010,7 @@ TexMgr_LoadImage8 -- handles 8bit source data, then passes it to LoadImage32
 */
 void TexMgr_LoadImage8 (gltexture_t *glt, byte *data)
 {
+	extern cvar_t gl_fullbrights;
 	qboolean padw = false, padh = false;
 	byte padbyte;
 	unsigned int *usepal;
@@ -1013,10 +1026,10 @@ void TexMgr_LoadImage8 (gltexture_t *glt, byte *data)
 	}
 
 	// detect false alpha cases
-	if (glt->flags & TEXPREF_ALPHA && !(glt->flags & (TEXPREF_FULLBRIGHT | TEXPREF_CONCHARS)))
+	if (glt->flags & TEXPREF_ALPHA && !(glt->flags & TEXPREF_CONCHARS))
 	{
 		for (i = 0; i < glt->width*glt->height; i++)
-			if (data[i] == 255)
+			if (data[i] == 255) //transparent index
 				break;
 		if (i == glt->width*glt->height)
 			glt->flags -= TEXPREF_ALPHA;
@@ -1026,6 +1039,11 @@ void TexMgr_LoadImage8 (gltexture_t *glt, byte *data)
 	if (glt->flags & TEXPREF_FULLBRIGHT)
 	{
 		usepal = d_8to24table_fbright;
+		padbyte = 0;
+	}
+	else if (glt->flags & TEXPREF_NOBRIGHT && gl_fullbrights.value)
+	{
+		usepal = d_8to24table_nobright;
 		padbyte = 0;
 	}
 	else if (glt->flags & TEXPREF_CONCHARS)
@@ -1188,7 +1206,13 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 	mark = Hunk_LowMark ();
 
 	if (glt->source_file[0] && glt->source_offset)
-		data = COM_LoadHunkFile (glt->source_file) + glt->source_offset; //lump inside file
+	{
+		//lump inside file
+		data = COM_LoadHunkFile (glt->source_file);
+		if (!data)
+			goto invalid;
+		data += glt->source_offset;
+	}
 	else if (glt->source_file[0] && !glt->source_offset)
 		data = Image_LoadImage (glt->source_file, &glt->source_width, &glt->source_height); //simple file
 	else if (!glt->source_file[0] && glt->source_offset)
@@ -1196,6 +1220,7 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 
 	if (!data)
 	{
+invalid:
 		Con_Printf ("TexMgr_ReloadImage: invalid source for %s\n", glt->name);
 		Hunk_FreeToLowMark(mark);
 		return;
@@ -1283,6 +1308,20 @@ void TexMgr_ReloadImages (void)
 		glGenTextures(1, &glt->texnum);
 		TexMgr_ReloadImage (glt, -1, -1);
 	}
+}
+
+/*
+================
+TexMgr_ReloadNobrightImages -- reloads all texture that were loaded with the nobright palette.  called when gl_fullbrights changes
+================
+*/
+void TexMgr_ReloadNobrightImages (void)
+{
+	gltexture_t *glt;
+
+	for (glt=active_gltextures; glt; glt=glt->next)
+		if (glt->flags & TEXPREF_NOBRIGHT)
+			TexMgr_ReloadImage(glt, -1, -1);
 }
 
 /*

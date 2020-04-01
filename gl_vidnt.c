@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -140,8 +140,10 @@ SETSWAPFUNC wglSwapIntervalEXT = NULL; //johnfitz
 GETSWAPFUNC wglGetSwapIntervalEXT = NULL; //johnfitz
 
 qboolean isPermedia = false;
+qboolean isIntelVideo = false; //johnfitz -- intel video workarounds from Baker
 qboolean gl_mtexable = false;
 qboolean gl_texture_env_combine = false; //johnfitz
+qboolean gl_texture_env_add = false; //johnfitz
 qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
 float gl_max_anisotropy; //johnfitz
@@ -356,8 +358,12 @@ qboolean VID_SetWindowedMode (int modenum)
 	DIBWidth = modelist[modenum].width;
 	DIBHeight = modelist[modenum].height;
 
-	WindowStyle = WS_OVERLAPPED | WS_BORDER | WS_CAPTION | WS_SYSMENU |
-				  WS_MINIMIZEBOX;
+	//johnfitz -- if width and height match desktop size, do aguirRe's trick of making the window have no titlebar/borders
+	if (DIBWidth == GetSystemMetrics(SM_CXSCREEN) && DIBHeight == GetSystemMetrics(SM_CYSCREEN))
+		WindowStyle = WS_POPUP; // Window covers entire screen; no caption, borders etc
+	else
+		WindowStyle = WS_OVERLAPPED | WS_BORDER | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+	//johnfitz
 	ExWindowStyle = 0;
 
 	rect = WindowRect;
@@ -570,6 +576,11 @@ int VID_SetMode (int modenum)
 		Sys_Error ("VID_SetMode: Bad mode type in modelist");
 	}
 
+	//johnfitz -- re-initialize dinput becuase it's tied to the "mainwindow" object
+	if (COM_CheckParm ("-dinput"))
+		IN_InitDInput ();
+	//johnfitz
+
 	window_width = DIBWidth;
 	window_height = DIBHeight;
 	VID_UpdateWindowStatus ();
@@ -766,19 +777,12 @@ void VID_Restart (void)
 		maindc = GetDC(mainwindow);
 		bSetupPixelFormat(maindc);
 
-		// if bpp changes, recreate render context and reload textures
-		if (modelist[vid_default].bpp != oldmode.bpp)
+		// try to reuse existing render context, and if that fails create a new one
+		if (!wglMakeCurrent (maindc, hrc))
 		{
 			wglDeleteContext (hrc);
 			hrc = wglCreateContext (maindc);
 			if (!wglMakeCurrent (maindc, hrc))
-				Sys_Error ("VID_Restart: wglMakeCurrent failed");
-			TexMgr_ReloadImages ();
-			GL_SetupState ();
-		}
-		else
-			if (!wglMakeCurrent (maindc, hrc))
-#if 1
 			{
 				char szBuf[80];
 				LPVOID lpMsgBuf;
@@ -787,9 +791,9 @@ void VID_Restart (void)
 				sprintf(szBuf, "VID_Restart: wglMakeCurrent failed with error %d: %s", dw, lpMsgBuf);
  				Sys_Error (szBuf);
 			}
-#else
-				Sys_Error ("VID_Restart: wglMakeCurrent failed");
-#endif
+			TexMgr_ReloadImages ();
+			GL_SetupState ();
+		}
 
 		vid_canalttab = true;
 
@@ -800,7 +804,7 @@ void VID_Restart (void)
 		TexMgr_RecalcWarpImageSize ();
 
 		//conwidth and conheight need to be recalculated
-		vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : vid.width;
+		vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
 		vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
 		vid.conwidth &= 0xFFFFFFF8;
 		vid.conheight = vid.conwidth * vid.height / vid.width;
@@ -1005,7 +1009,7 @@ void GL_CheckExtensions (void)
 	// multitexture
 	//
 	if (COM_CheckParm("-nomtex"))
-		Con_Printf ("WARNING: Mutitexture disabled at command line\n");
+		Con_Warning ("Mutitexture disabled at command line\n");
 	else
 		if (strstr(gl_extensions, "GL_ARB_multitexture"))
 		{
@@ -1019,7 +1023,7 @@ void GL_CheckExtensions (void)
 				gl_mtexable = true;
 			}
 			else
-				Con_Printf ("WARNING: multitexture not supported (wglGetProcAddress failed)\n");
+				Con_Warning ("multitexture not supported (wglGetProcAddress failed)\n");
 		}
 		else
 			if (strstr(gl_extensions, "GL_SGIS_multitexture"))
@@ -1034,16 +1038,16 @@ void GL_CheckExtensions (void)
 					gl_mtexable = true;
 				}
 				else
-					Con_Printf ("WARNING: multitexture not supported (wglGetProcAddress failed)\n");
+					Con_Warning ("multitexture not supported (wglGetProcAddress failed)\n");
 
 			}
 			else
-				Con_Printf ("WARNING: multitexture not supported (extension not found)\n");
+				Con_Warning ("multitexture not supported (extension not found)\n");
 	//
 	// texture_env_combine
 	//
 	if (COM_CheckParm("-nocombine"))
-		Con_Printf ("WARNING: texture_env_combine disabled at command line\n");
+		Con_Warning ("texture_env_combine disabled at command line\n");
 	else
 		if (strstr(gl_extensions, "GL_ARB_texture_env_combine"))
 		{
@@ -1057,7 +1061,26 @@ void GL_CheckExtensions (void)
 				gl_texture_env_combine = true;
 			}
 			else
-				Con_Printf ("WARNING: texture_env_combine not supported\n");
+				Con_Warning ("texture_env_combine not supported\n");
+	//
+	// texture_env_add
+	//
+	if (COM_CheckParm("-noadd"))
+		Con_Warning ("texture_env_add disabled at command line\n");
+	else
+		if (strstr(gl_extensions, "GL_ARB_texture_env_add"))
+		{
+			Con_Printf("FOUND: ARB_texture_env_add\n");
+			gl_texture_env_add = true;
+		}
+		else
+			if (strstr(gl_extensions, "GL_EXT_texture_env_add"))
+			{
+				Con_Printf("FOUND: EXT_texture_env_add\n");
+				gl_texture_env_add = true;
+			}
+			else
+				Con_Warning ("texture_env_add not supported\n");
 
 	//
 	// swap control
@@ -1070,9 +1093,9 @@ void GL_CheckExtensions (void)
 		if (wglSwapIntervalEXT && wglGetSwapIntervalEXT)
 		{
 			if (!wglSwapIntervalEXT(0))
-				Con_Printf("WARNING: vertical sync not supported (wglSwapIntervalEXT failed)\n");
+				Con_Warning ("vertical sync not supported (wglSwapIntervalEXT failed)\n");
 			else if (wglGetSwapIntervalEXT() == -1)
-				Con_Printf("WARNING: vertical sync not supported (swap interval is -1.) Make sure you don't have vertical sync disabled in your driver settings.\n");
+				Con_Warning ("vertical sync not supported (swap interval is -1.) Make sure you don't have vertical sync disabled in your driver settings.\n");
 			else
 			{
 				Con_Printf("FOUND: WGL_EXT_swap_control\n");
@@ -1080,10 +1103,10 @@ void GL_CheckExtensions (void)
 			}
 		}
 		else
-			Con_Printf ("WARNING: vertical sync not supported (wglGetProcAddress failed)\n");
+			Con_Warning ("vertical sync not supported (wglGetProcAddress failed)\n");
 	}
 	else
-		Con_Printf ("WARNING: vertical sync not supported (extension not found)\n");
+		Con_Warning ("vertical sync not supported (extension not found)\n");
 
 	//
 	// anisotropic filtering
@@ -1109,13 +1132,13 @@ void GL_CheckExtensions (void)
 			gl_anisotropy_able = true;
 		}
 		else
-			Con_Printf("WARNING: anisotropic filtering locked by driver. Current driver setting is %f\n", test1);
+			Con_Warning ("anisotropic filtering locked by driver. Current driver setting is %f\n", test1);
 
 		//get max value either way, so the menu and stuff know it
 		glGetFloatv (GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &gl_max_anisotropy);
 	}
 	else
-		Con_Printf ("WARNING: texture_filter_anisotropic not supported\n");
+		Con_Warning ("texture_filter_anisotropic not supported\n");
 }
 
 /*
@@ -1190,11 +1213,19 @@ void GL_Init (void)
     if (strnicmp(gl_renderer,"Permedia",8)==0)
          isPermedia = true;
 
+	//johnfitz -- intel video workarounds from Baker
+	if (!strcmp(gl_vendor, "Intel"))
+	{
+		Con_Printf ("Intel Display Adapter detected\n");
+		isIntelVideo = true;
+	}
+	//johnfitz
+
 #if 0
 	//johnfitz -- confirm presence of stencil buffer
 	glGetIntegerv(GL_STENCIL_BITS, &gl_stencilbits);
 	if(!gl_stencilbits)
-		Con_Printf ("WARNING: Could not create stencil buffer\n");
+		Con_Warning ("Could not create stencil buffer\n");
 	else
 		Con_Printf ("%i bit stencil buffer\n", gl_stencilbits);
 #endif
@@ -1455,14 +1486,7 @@ ClearAllStates
 */
 void ClearAllStates (void)
 {
-	int		i;
-
-// send an up event for each key, to make sure the server clears them all
-	for (i=0 ; i<256 ; i++)
-	{
-		Key_Event (i, false);
-	}
-
+	//johnfitz -- moved some code into Key_ClearStates
 	Key_ClearStates ();
 	IN_ClearStates ();
 }
@@ -1509,6 +1533,7 @@ void AppActivate(BOOL fActive, BOOL minimize)
 				vid_wassuspended = false;
 				ChangeDisplaySettings (&gdevmode, CDS_FULLSCREEN);
 				ShowWindow(mainwindow, SW_SHOWNORMAL);
+				MoveWindow(mainwindow, 0, 0, gdevmode.dmPelsWidth, gdevmode.dmPelsHeight, false); //johnfitz -- alt-tab fix via Baker
 			}
 		}
 		else if ((modestate == MS_WINDOWED) && _windowed_mouse.value && key_dest == key_game)
@@ -2283,8 +2308,7 @@ void	VID_Init (void)
 
 	GL_Init ();
 
-	sprintf (gldir, "%s/glquake", com_gamedir);
-	Sys_mkdir (gldir);
+	//johnfitz -- removed code to create "glquake" subdirectory
 
 	vid_realmode = vid_modenum;
 
@@ -2369,6 +2393,9 @@ int		video_options_cursor = 0;
 
 typedef struct {int width,height;} vid_menu_mode;
 
+int vid_menu_rwidth;
+int vid_menu_rheight;
+
 //TODO: replace these fixed-length arrays with hunk_allocated buffers
 
 vid_menu_mode vid_menu_modes[MAX_MODE_LIST];
@@ -2445,13 +2472,20 @@ void VID_Menu_RebuildBppList (void)
 		}
 	}
 
+	//if there are no valid fullscreen bpps for this width/height, just pick one
+	if (vid_menu_numbpps == 0)
+	{
+		Cvar_SetValue ("vid_bpp",(float)modelist[0].bpp);
+		return;
+	}
+
 	//if vid_bpp is not in the new list, change vid_bpp
 	for (i=0;i<vid_menu_numbpps;i++)
 		if (vid_menu_bpps[i] == (int)(vid_bpp.value))
 			break;
 
 	if (i==vid_menu_numbpps)
-		Cvar_Set ("vid_bpp",va("%i",vid_menu_bpps[0]));
+		Cvar_SetValue ("vid_bpp",(float)vid_menu_bpps[0]);
 }
 
 /*
@@ -2490,13 +2524,48 @@ void VID_Menu_RebuildRateList (void)
 		}
 	}
 
+	//if there are no valid fullscreen refreshrates for this width/height, just pick one
+	if (vid_menu_numrates == 0)
+	{
+		Cvar_SetValue ("vid_refreshrate",(float)modelist[0].refreshrate);
+		return;
+	}
+
 	//if vid_refreshrate is not in the new list, change vid_refreshrate
 	for (i=0;i<vid_menu_numrates;i++)
 		if (vid_menu_rates[i] == (int)(vid_refreshrate.value))
 			break;
 
 	if (i==vid_menu_numrates)
-		Cvar_Set ("vid_refreshrate",va("%i",vid_menu_rates[0]));
+		Cvar_SetValue ("vid_refreshrate",(float)vid_menu_rates[0]);
+}
+
+/*
+================
+VID_Menu_CalcAspectRatio
+
+calculates aspect ratio for current vid_width/vid_height
+================
+*/
+void VID_Menu_CalcAspectRatio (void)
+{
+	int w,h,f;
+	w = vid_width.value;
+	h = vid_height.value;
+	f = 2;
+	while (f < w && f < h)
+	{
+		if ((w/f)*f == w && (h/f)*f == h)
+		{
+			w/=f;
+			h/=f;
+			f=2;
+		}
+		else
+			f++;
+	}
+	vid_menu_rwidth = w;
+	vid_menu_rheight = h;
 }
 
 /*
@@ -2531,10 +2600,11 @@ void VID_Menu_ChooseNextMode (int dir)
 			i = vid_menu_nummodes-1;
 	}
 
-	Cvar_Set ("vid_width",va("%i",vid_menu_modes[i].width));
-	Cvar_Set ("vid_height",va("%i",vid_menu_modes[i].height));
+	Cvar_SetValue ("vid_width",(float)vid_menu_modes[i].width);
+	Cvar_SetValue ("vid_height",(float)vid_menu_modes[i].height);
 	VID_Menu_RebuildBppList ();
 	VID_Menu_RebuildRateList ();
+	VID_Menu_CalcAspectRatio ();
 }
 
 /*
@@ -2567,7 +2637,7 @@ void VID_Menu_ChooseNextBpp (int dir)
 			i = vid_menu_numbpps-1;
 	}
 
-	Cvar_Set ("vid_bpp",va("%i",vid_menu_bpps[i]));
+	Cvar_SetValue ("vid_bpp",(float)vid_menu_bpps[i]);
 	VID_Menu_RebuildRateList ();
 }
 
@@ -2601,7 +2671,7 @@ void VID_Menu_ChooseNextRate (int dir)
 			i = vid_menu_numrates-1;
 	}
 
-	Cvar_Set ("vid_refreshrate",va("%i",vid_menu_rates[i]));
+	Cvar_SetValue ("vid_refreshrate",(float)vid_menu_rates[i]);
 }
 
 /*
@@ -2733,29 +2803,29 @@ void VID_MenuDraw (void)
 	M_PrintWhite ((320-8*strlen(title))/2, 32, title);
 
 	// options
-	M_Print (16, video_cursor_table[i], "            Video mode");
-	M_Print (216, video_cursor_table[i], va("%ix%i", (int)vid_width.value, (int)vid_height.value));
+	M_Print (16, video_cursor_table[i], "        Video mode");
+	M_Print (184, video_cursor_table[i], va("%ix%i (%i:%i)", (int)vid_width.value, (int)vid_height.value, vid_menu_rwidth, vid_menu_rheight));
 	i++;
 
-	M_Print (16, video_cursor_table[i], "           Color depth");
-	M_Print (216, video_cursor_table[i], va("%i", (int)vid_bpp.value));
+	M_Print (16, video_cursor_table[i], "       Color depth");
+	M_Print (184, video_cursor_table[i], va("%i", (int)vid_bpp.value));
 	i++;
 
-	M_Print (16, video_cursor_table[i], "          Refresh rate");
-	M_Print (216, video_cursor_table[i], va("%i Hz", (int)vid_refreshrate.value));
+	M_Print (16, video_cursor_table[i], "      Refresh rate");
+	M_Print (184, video_cursor_table[i], va("%i Hz", (int)vid_refreshrate.value));
 	i++;
 
-	M_Print (16, video_cursor_table[i], "            Fullscreen");
-	M_DrawCheckbox (216, video_cursor_table[i], (int)vid_fullscreen.value);
+	M_Print (16, video_cursor_table[i], "        Fullscreen");
+	M_DrawCheckbox (184, video_cursor_table[i], (int)vid_fullscreen.value);
 	i++;
 
-	M_Print (16, video_cursor_table[i], "          Test changes");
+	M_Print (16, video_cursor_table[i], "      Test changes");
 	i++;
 
-	M_Print (16, video_cursor_table[i], "         Apply changes");
+	M_Print (16, video_cursor_table[i], "     Apply changes");
 
 	// cursor
-	M_DrawCharacter (200, video_cursor_table[video_options_cursor], 12+((int)(realtime*4)&1));
+	M_DrawCharacter (168, video_cursor_table[video_options_cursor], 12+((int)(realtime*4)&1));
 
 	// notes          "345678901234567890123456789012345678"
 //	M_Print (16, 172, "Windowed modes always use the desk- ");
@@ -2780,4 +2850,7 @@ void VID_Menu_f (void)
 	//set up bpp and rate lists based on current cvars
 	VID_Menu_RebuildBppList ();
 	VID_Menu_RebuildRateList ();
+
+	//aspect ratio
+	VID_Menu_CalcAspectRatio ();
 }

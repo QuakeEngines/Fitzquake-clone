@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -46,21 +46,30 @@ extern	qboolean	scr_skipupdate;
 
 extern	cvar_t		scr_viewsize;
 
-extern cvar_t scr_viewsize;
+extern	cvar_t		scr_sbaralpha; //johnfitz
 
 extern qboolean		block_drawing;
 
 void SCR_UpdateWholeScreen (void);
 
 //johnfitz -- stuff for 2d drawing control
-#define CANVAS_DEFAULT 0
-#define CANVAS_CONSOLE 1
-#define CANVAS_MENU 2
-#define CANVAS_SBAR 3
-#define CANVAS_WARPIMAGE 4
+typedef enum {
+	CANVAS_NONE,
+	CANVAS_DEFAULT,
+	CANVAS_CONSOLE,
+	CANVAS_MENU,
+	CANVAS_SBAR,
+	CANVAS_WARPIMAGE,
+	CANVAS_CROSSHAIR,
+	CANVAS_BOTTOMLEFT,
+	CANVAS_BOTTOMRIGHT,
+	CANVAS_TOPRIGHT,
+} canvastype;
 extern	cvar_t		scr_menuscale;
 extern	cvar_t		scr_sbarscale;
 extern	cvar_t		scr_conwidth;
+extern	cvar_t		scr_conscale;
+extern	cvar_t		scr_crosshaircale;
 //johnfitz
 
 extern int scr_tileclear_updates; //johnfitz

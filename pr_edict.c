@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_edict.c -- entity dictionary
 
 #include "quakedef.h"
+
+qboolean		pr_alpha_supported; //johnfitz
 
 dprograms_t		*progs;
 dfunction_t		*pr_functions;
@@ -103,7 +105,7 @@ edict_t *ED_Alloc (void)
 	}
 
 	if (i == sv.max_edicts) //johnfitz -- use sv.max_edicts instead of MAX_EDICTS
-		Sys_Error ("ED_Alloc: no free edicts");
+		Host_Error ("ED_Alloc: no free edicts (max_edicts is %i)", sv.max_edicts); //johnfitz -- was Sys_Error
 
 	sv.num_edicts++;
 	e = EDICT_NUM(i);
@@ -135,6 +137,7 @@ void ED_Free (edict_t *ed)
 	VectorCopy (vec3_origin, ed->v.angles);
 	ed->v.nextthink = -1;
 	ed->v.solid = 0;
+	ed->alpha = ENTALPHA_DEFAULT; //johnfitz -- reset alpha for next entity
 
 	ed->freetime = sv.time;
 }
@@ -238,7 +241,11 @@ dfunction_t *ED_FindFunction (char *name)
 	return NULL;
 }
 
-
+/*
+============
+GetEdictFieldValue
+============
+*/
 eval_t *GetEdictFieldValue(edict_t *ed, char *field)
 {
 	ddef_t			*def = NULL;
@@ -519,6 +526,11 @@ void ED_Write (FILE *f, edict_t *ed)
 		fprintf (f,"\"%s\" ",name);
 		fprintf (f,"\"%s\"\n", PR_UglyValueString(d->type, (eval_t *)v));
 	}
+
+	//johnfitz -- save entity alpha manually when progs.dat doesn't know about alpha
+	if (!pr_alpha_supported && ed->alpha != ENTALPHA_DEFAULT)
+		fprintf (f,"\"alpha\" \"%f\"\n", ENTALPHA_TOSAVE(ed->alpha));
+	//johnfitz
 
 	fprintf (f, "}\n");
 }
@@ -826,23 +838,23 @@ char *ED_ParseEdict (char *data, edict_t *ent)
 		if (!data)
 			Sys_Error ("ED_ParseEntity: EOF without closing brace");
 
-// anglehack is to allow QuakeEd to write single scalar angles
-// and allow them to be turned into vectors. (FIXME...)
-if (!strcmp(com_token, "angle"))
-{
-	strcpy (com_token, "angles");
-	anglehack = true;
-}
-else
-	anglehack = false;
+		// anglehack is to allow QuakeEd to write single scalar angles
+		// and allow them to be turned into vectors. (FIXME...)
+		if (!strcmp(com_token, "angle"))
+		{
+			strcpy (com_token, "angles");
+			anglehack = true;
+		}
+		else
+			anglehack = false;
 
-// FIXME: change light to _light to get rid of this hack
-if (!strcmp(com_token, "light"))
-	strcpy (com_token, "light_lev");	// hack for single light def
+		// FIXME: change light to _light to get rid of this hack
+		if (!strcmp(com_token, "light"))
+			strcpy (com_token, "light_lev");	// hack for single light def
 
 		strcpy (keyname, com_token);
 
-		// another hack to fix heynames with trailing spaces
+		// another hack to fix keynames with trailing spaces
 		n = strlen(keyname);
 		while (n && keyname[n-1] == ' ')
 		{
@@ -850,7 +862,7 @@ if (!strcmp(com_token, "light"))
 			n--;
 		}
 
-	// parse value
+		// parse value
 		data = COM_Parse (data);
 		if (!data)
 			Sys_Error ("ED_ParseEntity: EOF without closing brace");
@@ -860,17 +872,22 @@ if (!strcmp(com_token, "light"))
 
 		init = true;
 
-// keynames with a leading underscore are used for utility comments,
-// and are immediately discarded by quake
+		// keynames with a leading underscore are used for utility comments,
+		// and are immediately discarded by quake
 		if (keyname[0] == '_')
 			continue;
+
+		//johnfitz -- hack to support .alpha even when progs.dat doesn't know about it
+		if (!strcmp(keyname, "alpha"))
+			ent->alpha = ENTALPHA_ENCODE(atof(com_token));
+		//johnfitz
 
 		key = ED_FindField (keyname);
 		if (!key)
 		{
-			//johnfitz -- HACK -- suppress error becuase fog/sky fields might not be mentioned in defs.qc
-			if (strncmp(keyname, "sky", 3) && strcmp(keyname, "fog"))
-				Con_SafePrintf ("'%s' is not a field\n", keyname); //johnfitz -- was Con_Printf
+			//johnfitz -- HACK -- suppress error becuase fog/sky/alpha fields might not be mentioned in defs.qc
+			if (strncmp(keyname, "sky", 3) && strcmp(keyname, "fog") && strcmp(keyname, "alpha"))
+				Con_DPrintf ("\"%s\" is not a field\n", keyname); //johnfitz -- was Con_Printf
 			continue;
 		}
 
@@ -1051,6 +1068,8 @@ void PR_LoadProgs (void)
 		pr_globaldefs[i].s_name = LittleLong (pr_globaldefs[i].s_name);
 	}
 
+	pr_alpha_supported = false; //johnfitz
+
 	for (i=0 ; i<progs->numfielddefs ; i++)
 	{
 		pr_fielddefs[i].type = LittleShort (pr_fielddefs[i].type);
@@ -1058,6 +1077,11 @@ void PR_LoadProgs (void)
 			Sys_Error ("PR_LoadProgs: pr_fielddefs[i].type & DEF_SAVEGLOBAL");
 		pr_fielddefs[i].ofs = LittleShort (pr_fielddefs[i].ofs);
 		pr_fielddefs[i].s_name = LittleLong (pr_fielddefs[i].s_name);
+
+		//johnfitz -- detect alpha support in progs.dat
+		if (!strcmp(pr_strings + pr_fielddefs[i].s_name,"alpha"))
+			pr_alpha_supported = true;
+		//johnfitz
 	}
 
 	for (i=0 ; i<progs->numglobals ; i++)

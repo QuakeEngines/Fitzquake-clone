@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -22,6 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 
 extern cvar_t	pausable;
+
+extern int com_nummissionpacks; //johnfitz
 
 int	current_skill;
 
@@ -159,7 +161,7 @@ void Host_Game_f (void)
 		Host_WriteConfiguration ();
 
 		//Kill the extra game if it is loaded
-		if (NumGames(com_searchpaths) > 1)
+		if (NumGames(com_searchpaths) > 1 + com_nummissionpacks)
 			KillGameDir(com_searchpaths);
 
 		strcpy (com_gamedir, pakfile);
@@ -191,6 +193,7 @@ void Host_Game_f (void)
 		{
 			TexMgr_NewGame ();
 			Draw_NewGame ();
+			R_NewGame ();
 		}
 		ExtraMaps_NewGame ();
 		//Cbuf_InsertText ("exec quake.rc\n");
@@ -279,7 +282,7 @@ void ExtraMaps_Init (void) //TODO: move win32 specific stuff to sys_win.c
 			if (!strstr(search->pack->filename, ignorepakdir)) //don't list standard id maps
 				for (i=0, pak=search->pack; i<pak->numfiles ; i++)
 					if (strstr(pak->files[i].name, ".bsp"))
-						if (pak->files[i].filelen > 10*1024) // don't list ammo boxes etc
+						if (pak->files[i].filelen > 32*1024) // don't list files under 32k (ammo boxes etc)
 						{
 							COM_StripExtension(pak->files[i].name + 5, mapname);
 							ExtraMaps_Add (mapname);
@@ -376,7 +379,7 @@ void Modlist_Init (void) //TODO: move win32 specific stuff to sys_win.c
 	WIN32_FIND_DATA	FindFileData, FindChildData;
 	HANDLE			Find, FindProgs, FindPak;
 	char			filestring[MAX_OSPATH], childstring[MAX_OSPATH];
-	int				count, temp;
+	int				temp;
 
 	sprintf (filestring,"%s/*", host_parms.basedir);
 	Find = FindFirstFile(filestring, &FindFileData);
@@ -394,20 +397,14 @@ void Modlist_Init (void) //TODO: move win32 specific stuff to sys_win.c
 		sprintf (childstring,"%s/%s/*.pak", host_parms.basedir, FindFileData.cFileName);
 		FindPak = FindFirstFile(childstring, &FindChildData);
 
-		if (FindProgs == INVALID_HANDLE_VALUE && FindPak == INVALID_HANDLE_VALUE)
-			continue;
-
-		Modlist_Add (FindFileData.cFileName);
+		if (FindProgs != INVALID_HANDLE_VALUE || FindPak != INVALID_HANDLE_VALUE)
+			Modlist_Add (FindFileData.cFileName);
 
 		FindClose (FindProgs);
 		FindClose (FindPak);
-		count++;
 	} while (FindNextFile(Find, &FindFileData));
-	FindClose (Find);
 
-	//make sure these get closed too
-	FindClose (FindProgs);
-	FindClose (FindPak);
+	FindClose (Find);
 #endif
 }
 
@@ -772,15 +769,6 @@ void Host_Map_f (void)
 	if (cmd_source != src_command)
 		return;
 
-	//johnfitz -- check for client having map before anything else
-	//	sprintf (name, "maps/%s.bsp", Cmd_Argv(1));
-	//	if (COM_OpenFile (name, &i) == -1)
-	//	{
-	//		Con_Printf("Host_Map_f: cannot find map %s\n", name);
-	//		return;
-	//	}
-	//johnfitz
-
 	cls.demonum = -1;		// stop demo loop in case this fails
 
 	CL_Disconnect ();
@@ -827,7 +815,7 @@ Goes to a new map, taking all clients along
 void Host_Changelevel_f (void)
 {
 	char	level[MAX_QPATH];
-	//int		i; //johnfitz
+	int		i; //johnfitz
 
 	if (Cmd_Argc() != 2)
 	{
@@ -841,13 +829,9 @@ void Host_Changelevel_f (void)
 	}
 
 	//johnfitz -- check for client having map before anything else
-	//sprintf (level, "maps/%s.bsp", Cmd_Argv(1));
-	//if (COM_OpenFile (level, &i) == -1)
-	//{
-	//	Con_Printf("Host_Changelevel_f: cannot find map %s\n", level);
-	//	//shut down server, disconnect, etc.
-	//	return;
-	//}
+	sprintf (level, "maps/%s.bsp", Cmd_Argv(1));
+	if (COM_OpenFile (level, &i) == -1)
+		Host_Error ("cannot find map %s", level);
 	//johnfitz
 
 	SV_SaveSpawnparms ();
@@ -1902,27 +1886,63 @@ void Host_Give_f (void)
         break;
 	//johnfitz -- give armour
     case 'a':
-		if (v >= 0 && v <= 100)
-		{
-			sv_player->v.armortype = 0.3;
-	        sv_player->v.armorvalue = v;
-			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR1;
-		}
-		if (v > 100 && v <= 150)
-		{
-			sv_player->v.armortype = 0.6;
-	        sv_player->v.armorvalue = v;
-			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR2;
-		}
-		if (v > 150 && v <= 200)
+		if (v > 150)
 		{
 			sv_player->v.armortype = 0.8;
 	        sv_player->v.armorvalue = v;
 			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR3;
 		}
+		else if (v > 100)
+		{
+			sv_player->v.armortype = 0.6;
+	        sv_player->v.armorvalue = v;
+			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR2;
+		}
+		else if (v >= 0)
+		{
+			sv_player->v.armortype = 0.3;
+	        sv_player->v.armorvalue = v;
+			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR1;
+		}
 		break;
 	//johnfitz
     }
+
+	//johnfitz -- update currentammo to match new ammo (so statusbar updates correctly)
+	switch ((int)(sv_player->v.weapon))
+	{
+	case IT_SHOTGUN:
+	case IT_SUPER_SHOTGUN:
+		sv_player->v.currentammo = sv_player->v.ammo_shells;
+		break;
+	case IT_NAILGUN:
+	case IT_SUPER_NAILGUN:
+	case RIT_LAVA_SUPER_NAILGUN:
+		sv_player->v.currentammo = sv_player->v.ammo_nails;
+		break;
+	case IT_GRENADE_LAUNCHER:
+	case IT_ROCKET_LAUNCHER:
+	case RIT_MULTI_GRENADE:
+	case RIT_MULTI_ROCKET:
+		sv_player->v.currentammo = sv_player->v.ammo_rockets;
+		break;
+	case IT_LIGHTNING:
+	case HIT_LASER_CANNON:
+	case HIT_MJOLNIR:
+		sv_player->v.currentammo = sv_player->v.ammo_cells;
+		break;
+	case RIT_LAVA_NAILGUN: //same as IT_AXE
+		if (rogue)
+			sv_player->v.currentammo = sv_player->v.ammo_nails;
+		break;
+	case RIT_PLASMA_GUN: //same as HIT_PROXIMITY_GUN
+		if (rogue)
+			sv_player->v.currentammo = sv_player->v.ammo_cells;
+		if (hipnotic)
+			sv_player->v.currentammo = sv_player->v.ammo_rockets;
+		break;
+	}
+	//johnfitz
 }
 
 edict_t	*FindViewthing (void)

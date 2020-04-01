@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -105,6 +105,7 @@ void MSG_WriteFloat (sizebuf_t *sb, float f);
 void MSG_WriteString (sizebuf_t *sb, char *s);
 void MSG_WriteCoord (sizebuf_t *sb, float f);
 void MSG_WriteAngle (sizebuf_t *sb, float f);
+void MSG_WriteAngle16 (sizebuf_t *sb, float f); //johnfitz
 
 extern	int			msg_readcount;
 extern	qboolean	msg_badread;		// set if a read goes beyond end of message
@@ -119,6 +120,7 @@ char *MSG_ReadString (void);
 
 float MSG_ReadCoord (void);
 float MSG_ReadAngle (void);
+float MSG_ReadAngle16 (void); //johnfitz
 
 //============================================================================
 

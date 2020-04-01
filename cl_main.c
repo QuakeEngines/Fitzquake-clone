@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -58,6 +58,8 @@ int				cl_max_edicts; //johnfitz -- only changes when new map loads
 int				cl_numvisedicts;
 entity_t		*cl_visedicts[MAX_VISEDICTS];
 
+extern cvar_t	r_lerpmodels, r_lerpmove; //johnfitz
+
 /*
 =====================
 CL_ClearState
@@ -84,7 +86,7 @@ void CL_ClearState (void)
 	memset (cl_beams, 0, sizeof(cl_beams));
 
 	//johnfitz -- cl_entities is now dynamically allocated
-	cl_max_edicts = CLAMP (256,(int)max_edicts.value,8192);
+	cl_max_edicts = CLAMP (MIN_EDICTS,(int)max_edicts.value,MAX_EDICTS);
 	cl_entities = Hunk_AllocName (cl_max_edicts*sizeof(entity_t), "cl_entities");
 	//johnfitz
 
@@ -372,6 +374,7 @@ float	CL_LerpPoint (void)
 		cl.mtime[1] = cl.mtime[0] - 0.1;
 		f = 0.1;
 	}
+
 	frac = (cl.time - cl.mtime[1]) / f;
 
 	if (frac < 0)
@@ -452,6 +455,7 @@ void CL_RelinkEntities (void)
 		if (ent->msgtime != cl.mtime[0])
 		{
 			ent->model = NULL;
+			ent->lerpflags |= LERP_RESETMOVE|LERP_RESETANIM; //johnfitz -- next time this entity slot is reused, the lerp will need to be reset
 			continue;
 		}
 
@@ -470,8 +474,16 @@ void CL_RelinkEntities (void)
 			{
 				delta[j] = ent->msg_origins[0][j] - ent->msg_origins[1][j];
 				if (delta[j] > 100 || delta[j] < -100)
+				{
 					f = 1;		// assume a teleportation, not a motion
+					ent->lerpflags |= LERP_RESETMOVE; //johnfitz -- don't lerp teleports
+				}
 			}
+
+			//johnfitz -- don't cl_lerp entities that will be r_lerped
+			if (r_lerpmove.value && (ent->lerpflags & LERP_MOVESTEP))
+				f = 1;
+			//johnfitz
 
 		// interpolate the origin and angles
 			for (j=0 ; j<3 ; j++)
@@ -508,6 +520,16 @@ void CL_RelinkEntities (void)
 			dl->radius = 200 + (rand()&31);
 			dl->minlight = 32;
 			dl->die = cl.time + 0.1;
+
+			//johnfitz -- assume muzzle flash accompanied by muzzle flare, which looks bad when lerped
+			if (r_lerpmodels.value != 2)
+			{
+			if (ent == &cl_entities[cl.viewentity])
+				cl.viewent.lerpflags |= LERP_RESETANIM|LERP_RESETANIM2; //no lerping for two frames
+			else
+				ent->lerpflags |= LERP_RESETANIM|LERP_RESETANIM2; //no lerping for two frames
+			}
+			//johnfitz
 		}
 		if (ent->effects & EF_BRIGHTLIGHT)
 		{
@@ -557,7 +579,6 @@ void CL_RelinkEntities (void)
 			cl_numvisedicts++;
 		}
 	}
-
 }
 
 
@@ -570,7 +591,14 @@ Read all incoming data from the server
 */
 int CL_ReadFromServer (void)
 {
-	int		ret;
+	int			ret;
+	extern int	num_temp_entities; //johnfitz
+	int			num_beams = 0; //johnfitz
+	int			num_dlights = 0; //johnfitz
+	beam_t		*b; //johnfitz
+	dlight_t	*l; //johnfitz
+	int			i; //johnfitz
+
 
 	cl.oldtime = cl.time;
 	cl.time += host_frametime;
@@ -592,6 +620,40 @@ int CL_ReadFromServer (void)
 
 	CL_RelinkEntities ();
 	CL_UpdateTEnts ();
+
+//johnfitz -- devstats
+
+	//visedicts
+	if (cl_numvisedicts > 256 && dev_peakstats.visedicts <= 256)
+		Con_Warning ("%i visedicts exceeds standard limit of 256.\n", cl_numvisedicts);
+	dev_stats.visedicts = cl_numvisedicts;
+	dev_peakstats.visedicts = max(cl_numvisedicts, dev_peakstats.visedicts);
+
+	//temp entities
+	if (num_temp_entities > 64 && dev_peakstats.tempents <= 64)
+		Con_Warning ("%i tempentities exceeds standard limit of 64.\n", num_temp_entities);
+	dev_stats.tempents = num_temp_entities;
+	dev_peakstats.tempents = max(num_temp_entities, dev_peakstats.tempents);
+
+	//beams
+	for (i=0, b=cl_beams ; i< MAX_BEAMS ; i++, b++)
+		if (b->model && b->endtime >= cl.time)
+			num_beams++;
+	if (num_beams > 24 && dev_peakstats.beams <= 24)
+		Con_Warning ("%i beams exceeded standard limit of 24.\n", num_beams);
+	dev_stats.beams = num_beams;
+	dev_peakstats.beams = max(num_beams, dev_peakstats.beams);
+
+	//dlights
+	for (i=0, l=cl_dlights ; i<MAX_DLIGHTS ; i++, l++)
+		if (l->die >= cl.time && l->radius)
+			num_dlights++;
+	if (num_dlights > 32 && dev_peakstats.dlights <= 32)
+		Con_Warning ("%i dlights exceeded standard limit of 32.\n", num_dlights);
+	dev_stats.dlights = num_dlights;
+	dev_peakstats.dlights = max(num_dlights, dev_peakstats.dlights);
+
+//johnfitz
 
 //
 // bring the links up to date

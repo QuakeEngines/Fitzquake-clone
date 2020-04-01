@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -66,7 +66,4 @@ void Sys_Sleep (void);
 void Sys_SendKeyEvents (void);
 // Perform Key_Event () callbacks until the input que is empty
 
-void Sys_LowFPPrecision (void);
-void Sys_HighFPPrecision (void);
-void Sys_SetFPCW (void);
 

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -28,6 +28,8 @@ extern	qboolean con_forcedup;	// because no entities to refresh
 extern qboolean con_initialized;
 extern byte *con_chars;
 
+extern char con_lastcenterstring[]; //johnfitz
+
 void Con_DrawCharacter (int cx, int line, int num);
 
 void Con_CheckResize (void);
@@ -35,7 +37,9 @@ void Con_Init (void);
 void Con_DrawConsole (int lines, qboolean drawinput);
 void Con_Print (char *txt);
 void Con_Printf (char *fmt, ...);
+void Con_Warning (char *fmt, ...); //johnfitz
 void Con_DPrintf (char *fmt, ...);
+void Con_DPrintf2 (char *fmt, ...); //johnfitz
 void Con_SafePrintf (char *fmt, ...);
 void Con_Clear_f (void);
 void Con_DrawNotify (void);

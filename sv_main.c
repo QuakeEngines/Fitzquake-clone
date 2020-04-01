@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -27,8 +27,42 @@ server_static_t	svs;
 
 char	localmodels[MAX_MODELS][5];			// inline model names for precache
 
+int sv_protocol = PROTOCOL_FITZQUAKE; //johnfitz
+
+extern qboolean		pr_alpha_supported; //johnfitz
+
 //============================================================================
 
+/*
+===============
+SV_Protocol_f
+===============
+*/
+void SV_Protocol_f (void)
+{
+	int i;
+
+	switch (Cmd_Argc())
+	{
+	case 1:
+		Con_Printf ("\"sv_protocol\" is \"%i\"\n", sv_protocol);
+		break;
+	case 2:
+		i = atoi(Cmd_Argv(1));
+		if (i != PROTOCOL_NETQUAKE && i != PROTOCOL_FITZQUAKE)
+			Con_Printf ("sv_protocol must be %i or %i\n", PROTOCOL_NETQUAKE, PROTOCOL_FITZQUAKE);
+		else
+		{
+			sv_protocol = i;
+			if (sv.active)
+			Con_Printf ("changes will not take effect until the next level load.\n");
+		}
+		break;
+	default:
+		Con_SafePrintf ("usage: sv_protocol <protocol>\n");
+		break;
+	}
+}
 /*
 ===============
 SV_Init
@@ -60,6 +94,8 @@ void SV_Init (void)
 	Cvar_RegisterVariable (&sv_aim, NULL);
 	Cvar_RegisterVariable (&sv_nostep, NULL);
 	Cvar_RegisterVariable (&sv_altnoclip, NULL); //johnfitz
+
+	Cmd_AddCommand ("sv_protocol", &SV_Protocol_f); //johnfitz
 
 	for (i=0 ; i<MAX_MODELS ; i++)
 		sprintf (localmodels[i], "*%i", i);
@@ -152,13 +188,24 @@ void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
 
 	ent = NUM_FOR_EDICT(entity);
 
-	channel = (ent<<3) | channel;
-
 	field_mask = 0;
 	if (volume != DEFAULT_SOUND_PACKET_VOLUME)
 		field_mask |= SND_VOLUME;
 	if (attenuation != DEFAULT_SOUND_PACKET_ATTENUATION)
 		field_mask |= SND_ATTENUATION;
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if (ent >= 8192)
+		if (sv.protocol == PROTOCOL_NETQUAKE)
+			return; //don't send any info protocol can't support
+		else
+			field_mask |= SND_LARGEENTITY;
+	if (sound_num >= 256 || channel >= 8)
+		if (sv.protocol == PROTOCOL_NETQUAKE)
+			return; //don't send any info protocol can't support
+		else
+			field_mask |= SND_LARGESOUND;
+	//johnfitz
 
 // directed messages go only to the entity the are targeted on
 	MSG_WriteByte (&sv.datagram, svc_sound);
@@ -167,8 +214,21 @@ void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
 		MSG_WriteByte (&sv.datagram, volume);
 	if (field_mask & SND_ATTENUATION)
 		MSG_WriteByte (&sv.datagram, attenuation*64);
-	MSG_WriteShort (&sv.datagram, channel);
-	MSG_WriteByte (&sv.datagram, sound_num);
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if (field_mask & SND_LARGEENTITY)
+	{
+		MSG_WriteShort (&sv.datagram, ent);
+		MSG_WriteByte (&sv.datagram, channel);
+	}
+	else
+		MSG_WriteShort (&sv.datagram, (ent<<3) | channel);
+	if (field_mask & SND_LARGESOUND)
+		MSG_WriteShort (&sv.datagram, sound_num);
+	else
+		MSG_WriteByte (&sv.datagram, sound_num);
+	//johnfitz
+
 	for (i=0 ; i<3 ; i++)
 		MSG_WriteCoord (&sv.datagram, entity->v.origin[i]+0.5*(entity->v.mins[i]+entity->v.maxs[i]));
 }
@@ -193,13 +253,14 @@ void SV_SendServerinfo (client_t *client)
 {
 	char			**s;
 	char			message[2048];
+	int				i; //johnfitz
 
 	MSG_WriteByte (&client->message, svc_print);
-	sprintf (message, "%c\nVERSION %4.2f SERVER (%i CRC)", 2, VERSION, pr_crc);
+	sprintf (message, "%c\nFITZQUAKE %1.2f SERVER (%i CRC)\n", 2, FITZQUAKE_VERSION, pr_crc); //johnfitz -- include fitzquake version
 	MSG_WriteString (&client->message,message);
 
 	MSG_WriteByte (&client->message, svc_serverinfo);
-	MSG_WriteLong (&client->message, PROTOCOL_VERSION);
+	MSG_WriteLong (&client->message, sv.protocol); //johnfitz -- sv.protocol instead of PROTOCOL_VERSION
 	MSG_WriteByte (&client->message, svs.maxclients);
 
 	if (!coop.value && deathmatch.value)
@@ -211,13 +272,17 @@ void SV_SendServerinfo (client_t *client)
 
 	MSG_WriteString (&client->message,message);
 
-	for (s = sv.model_precache+1 ; *s ; s++)
-		MSG_WriteString (&client->message, *s);
+	//johnfitz -- only send the first 256 model and sound precaches if protocol is 15
+	for (i=0,s = sv.model_precache+1 ; *s; s++,i++)
+		if (sv.protocol != PROTOCOL_NETQUAKE || i < 256)
+			MSG_WriteString (&client->message, *s);
 	MSG_WriteByte (&client->message, 0);
 
-	for (s = sv.sound_precache+1 ; *s ; s++)
-		MSG_WriteString (&client->message, *s);
+	for (i=0,s = sv.sound_precache+1 ; *s ; s++,i++)
+		if (sv.protocol != PROTOCOL_NETQUAKE || i < 256)
+			MSG_WriteString (&client->message, *s);
 	MSG_WriteByte (&client->message, 0);
+	//johnfitz
 
 // send music
 	MSG_WriteByte (&client->message, svc_cdtrack);
@@ -427,7 +492,7 @@ qboolean SV_VisibleToClient (edict_t *client, edict_t *test, model_t *worldmodel
 	int		i;
 
 	VectorAdd (client->v.origin, client->v.view_ofs, org);
-	pvs = SV_FatPVS (org, sv.worldmodel);
+	pvs = SV_FatPVS (org, worldmodel);
 
 	for (i=0 ; i < test->num_leafs ; i++)
 		if (pvs[test->leafnums[i] >> 3] & (1 << (test->leafnums[i]&7) ))
@@ -462,25 +527,36 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 	for (e=1 ; e<sv.num_edicts ; e++, ent = NEXT_EDICT(ent))
 	{
 
-// ignore if not touching a PV leaf
 		if (ent != clent)	// clent is ALLWAYS sent
 		{
-// ignore ents without visible models
+			// ignore ents without visible models
 			if (!ent->v.modelindex || !pr_strings[ent->v.model])
 				continue;
 
+			//johnfitz -- don't send model>255 entities if protocol is 15
+			if (sv_protocol == PROTOCOL_NETQUAKE && (int)ent->v.modelindex & 0xFF00)
+				continue;
+
+			// ignore if not touching a PV leaf
 			for (i=0 ; i < ent->num_leafs ; i++)
 				if (pvs[ent->leafnums[i] >> 3] & (1 << (ent->leafnums[i]&7) ))
 					break;
-
 			if (i == ent->num_leafs)
 				continue;		// not visible
 		}
 
-		if (msg->maxsize - msg->cursize < 16)
+		//johnfitz -- max size for protocol 15 is 18 bytes, not 16 as originally
+		//assumed here.  And, for protocol 85 the max size is actually 24 bytes.
+		if (msg->cursize + 24 > msg->maxsize)
 		{
-			Con_Printf ("packet overflow\n");
-			return;
+			//johnfitz -- less spammy overflow message
+			if (!dev_overflows.packetsize || dev_overflows.packetsize + CONSOLE_RESPAM_TIME < realtime )
+			{
+				Con_Printf ("Packet overflow!\n");
+				dev_overflows.packetsize = realtime;
+			}
+			goto stats;
+			//johnfitz
 		}
 
 // send an update
@@ -503,7 +579,7 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 			bits |= U_ANGLE3;
 
 		if (ent->v.movetype == MOVETYPE_STEP)
-			bits |= U_NOLERP;	// don't mess up the step animation
+			bits |= U_STEP;	// don't mess up the step animation
 
 		if (ent->baseline.colormap != ent->v.colormap)
 			bits |= U_COLORMAP;
@@ -520,6 +596,34 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 		if (ent->baseline.modelindex != ent->v.modelindex)
 			bits |= U_MODEL;
 
+		//johnfitz -- alpha
+		if (pr_alpha_supported)
+		{
+			// TODO: find a cleaner place to put this code
+			eval_t	*val;
+			val = GetEdictFieldValue(ent, "alpha");
+			if (val)
+				ent->alpha = ENTALPHA_ENCODE(val->_float);
+		}
+
+		//don't send invisible entities unless they have effects
+		if (ent->alpha == ENTALPHA_ZERO && !ent->v.effects)
+			continue;
+		//johnfitz
+
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		if (sv.protocol != PROTOCOL_NETQUAKE)
+		{
+
+			if (ent->baseline.alpha != ent->alpha) bits |= U_ALPHA;
+			if (bits & U_FRAME && (int)ent->v.frame & 0xFF00) bits |= U_FRAME2;
+			if (bits & U_MODEL && (int)ent->v.modelindex & 0xFF00) bits |= U_MODEL2;
+			if (ent->sendinterval) bits |= U_LERPFINISH;
+			if (bits >= 65536) bits |= U_EXTEND1;
+			if (bits >= 16777216) bits |= U_EXTEND2;
+		}
+		//johnfitz
+
 		if (e >= 256)
 			bits |= U_LONGENTITY;
 
@@ -529,10 +633,18 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 	//
 	// write the message
 	//
-		MSG_WriteByte (msg,bits | U_SIGNAL);
+		MSG_WriteByte (msg, bits | U_SIGNAL);
 
 		if (bits & U_MOREBITS)
 			MSG_WriteByte (msg, bits>>8);
+
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		if (bits & U_EXTEND1)
+			MSG_WriteByte(msg, bits>>16);
+		if (bits & U_EXTEND2)
+			MSG_WriteByte(msg, bits>>24);
+		//johnfitz
+
 		if (bits & U_LONGENTITY)
 			MSG_WriteShort (msg,e);
 		else
@@ -560,7 +672,26 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 			MSG_WriteCoord (msg, ent->v.origin[2]);
 		if (bits & U_ANGLE3)
 			MSG_WriteAngle(msg, ent->v.angles[2]);
+
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		if (bits & U_ALPHA)
+			MSG_WriteByte(msg, ent->alpha);
+		if (bits & U_FRAME2)
+			MSG_WriteByte(msg, (int)ent->v.frame >> 8);
+		if (bits & U_MODEL2)
+			MSG_WriteByte(msg, (int)ent->v.modelindex >> 8);
+		if (bits & U_LERPFINISH)
+			MSG_WriteByte(msg, (byte)(Q_rint((ent->v.nextthink-sv.time)*255)));
+		//johnfitz
 	}
+
+	//johnfitz -- devstats
+stats:
+	if (msg->cursize > 1024 && dev_peakstats.packetsize <= 1024)
+		Con_Warning ("%i byte packet exceeds standard limit of 1024.\n", msg->cursize);
+	dev_stats.packetsize = msg->cursize;
+	dev_peakstats.packetsize = max(msg->cursize, dev_peakstats.packetsize);
+	//johnfitz
 }
 
 /*
@@ -594,9 +725,7 @@ void SV_WriteClientdataToMessage (edict_t *ent, sizebuf_t *msg)
 	int		i;
 	edict_t	*other;
 	int		items;
-#ifndef QUAKE2
 	eval_t	*val;
-#endif
 
 //
 // send a damage message
@@ -670,10 +799,32 @@ void SV_WriteClientdataToMessage (edict_t *ent, sizebuf_t *msg)
 //	if (ent->v.weapon)
 		bits |= SU_WEAPON;
 
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if (sv.protocol != PROTOCOL_NETQUAKE)
+	{
+		if (bits & SU_WEAPON && SV_ModelIndex(pr_strings+ent->v.weaponmodel) & 0xFF00) bits |= SU_WEAPON2;
+		if ((int)ent->v.armorvalue & 0xFF00) bits |= SU_ARMOR2;
+		if ((int)ent->v.currentammo & 0xFF00) bits |= SU_AMMO2;
+		if ((int)ent->v.ammo_shells & 0xFF00) bits |= SU_SHELLS2;
+		if ((int)ent->v.ammo_nails & 0xFF00) bits |= SU_NAILS2;
+		if ((int)ent->v.ammo_rockets & 0xFF00) bits |= SU_ROCKETS2;
+		if ((int)ent->v.ammo_cells & 0xFF00) bits |= SU_CELLS2;
+		if (bits & SU_WEAPONFRAME && (int)ent->v.weaponframe & 0xFF00) bits |= SU_WEAPONFRAME2;
+		if (bits & SU_WEAPON && ent->alpha != ENTALPHA_DEFAULT) bits |= SU_WEAPONALPHA; //for now, weaponalpha = client entity alpha
+		if (bits >= 65536) bits |= SU_EXTEND1;
+		if (bits >= 16777216) bits |= SU_EXTEND2;
+	}
+	//johnfitz
+
 // send the data
 
 	MSG_WriteByte (msg, svc_clientdata);
 	MSG_WriteShort (msg, bits);
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if (bits & SU_EXTEND1) MSG_WriteByte(msg, bits>>16);
+	if (bits & SU_EXTEND2) MSG_WriteByte(msg, bits>>24);
+	//johnfitz
 
 	if (bits & SU_VIEWHEIGHT)
 		MSG_WriteChar (msg, ent->v.view_ofs[2]);
@@ -721,6 +872,27 @@ void SV_WriteClientdataToMessage (edict_t *ent, sizebuf_t *msg)
 			}
 		}
 	}
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if (bits & SU_WEAPON2)
+		MSG_WriteByte (msg, SV_ModelIndex(pr_strings+ent->v.weaponmodel) >> 8);
+	if (bits & SU_ARMOR2)
+		MSG_WriteByte (msg, (int)ent->v.armorvalue >> 8);
+	if (bits & SU_AMMO2)
+		MSG_WriteByte (msg, (int)ent->v.currentammo >> 8);
+	if (bits & SU_SHELLS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_shells >> 8);
+	if (bits & SU_NAILS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_nails >> 8);
+	if (bits & SU_ROCKETS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_rockets >> 8);
+	if (bits & SU_CELLS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_cells >> 8);
+	if (bits & SU_WEAPONFRAME2)
+		MSG_WriteByte (msg, (int)ent->v.weaponframe >> 8);
+	if (bits & SU_WEAPONALPHA)
+		MSG_WriteByte (msg, ent->alpha); //for now, weaponalpha = client entity alpha
+	//johnfitz
 }
 
 /*
@@ -736,6 +908,11 @@ qboolean SV_SendClientDatagram (client_t *client)
 	msg.data = buf;
 	msg.maxsize = sizeof(buf);
 	msg.cursize = 0;
+
+	//johnfitz -- if client is nonlocal, use smaller max size so packets aren't fragmented
+	if (Q_strcmp (client->netconnection->address, "LOCAL") != 0)
+		msg.maxsize = DATAGRAM_MTU;
+	//johnfitz
 
 	MSG_WriteByte (&msg, svc_time);
 	MSG_WriteFloat (&msg, sv.time);
@@ -930,14 +1107,14 @@ int SV_ModelIndex (char *name)
 /*
 ================
 SV_CreateBaseline
-
 ================
 */
 void SV_CreateBaseline (void)
 {
 	int			i;
-	edict_t			*svent;
-	int				entnum;
+	edict_t		*svent;
+	int			entnum;
+	int			bits; //johnfitz -- PROTOCOL_FITZQUAKE
 
 	for (entnum = 0; entnum < sv.num_edicts ; entnum++)
 	{
@@ -959,22 +1136,63 @@ void SV_CreateBaseline (void)
 		{
 			svent->baseline.colormap = entnum;
 			svent->baseline.modelindex = SV_ModelIndex("progs/player.mdl");
+			svent->baseline.alpha = ENTALPHA_DEFAULT; //johnfitz -- alpha support
 		}
 		else
 		{
 			svent->baseline.colormap = 0;
-			svent->baseline.modelindex =
-				SV_ModelIndex(pr_strings + svent->v.model);
+			svent->baseline.modelindex = SV_ModelIndex(pr_strings + svent->v.model);
+			svent->baseline.alpha = svent->alpha; //johnfitz -- alpha support
 		}
+
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		bits = 0;
+		if (sv.protocol == PROTOCOL_NETQUAKE) //still want to send baseline in PROTOCOL_NETQUAKE, so reset these values
+		{
+			if (svent->baseline.modelindex & 0xFF00)
+				svent->baseline.modelindex = 0;
+			if (svent->baseline.frame & 0xFF00)
+				svent->baseline.frame = 0;
+			svent->baseline.alpha = ENTALPHA_DEFAULT;
+		}
+		else //decide which extra data needs to be sent
+		{
+			if (svent->baseline.modelindex & 0xFF00)
+				bits |= B_LARGEMODEL;
+			if (svent->baseline.frame & 0xFF00)
+				bits |= B_LARGEFRAME;
+			if (svent->baseline.alpha != ENTALPHA_DEFAULT)
+				bits |= B_ALPHA;
+		}
+		//johnfitz
 
 	//
 	// add to the message
 	//
-		MSG_WriteByte (&sv.signon,svc_spawnbaseline);
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		if (bits)
+			MSG_WriteByte (&sv.signon, svc_spawnbaseline2);
+		else
+			MSG_WriteByte (&sv.signon, svc_spawnbaseline);
+		//johnfitz
+
 		MSG_WriteShort (&sv.signon,entnum);
 
-		MSG_WriteByte (&sv.signon, svent->baseline.modelindex);
-		MSG_WriteByte (&sv.signon, svent->baseline.frame);
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		if (bits)
+			MSG_WriteByte (&sv.signon, bits);
+
+		if (bits & B_LARGEMODEL)
+			MSG_WriteShort (&sv.signon, svent->baseline.modelindex);
+		else
+			MSG_WriteByte (&sv.signon, svent->baseline.modelindex);
+
+		if (bits & B_LARGEFRAME)
+			MSG_WriteShort (&sv.signon, svent->baseline.frame);
+		else
+			MSG_WriteByte (&sv.signon, svent->baseline.frame);
+		//johnfitz
+
 		MSG_WriteByte (&sv.signon, svent->baseline.colormap);
 		MSG_WriteByte (&sv.signon, svent->baseline.skin);
 		for (i=0 ; i<3 ; i++)
@@ -982,6 +1200,11 @@ void SV_CreateBaseline (void)
 			MSG_WriteCoord(&sv.signon, svent->baseline.origin[i]);
 			MSG_WriteAngle(&sv.signon, svent->baseline.angles[i]);
 		}
+
+		//johnfitz -- PROTOCOL_FITZQUAKE
+		if (bits & B_ALPHA)
+			MSG_WriteByte (&sv.signon, svent->baseline.alpha);
+		//johnfitz
 	}
 }
 
@@ -1090,11 +1313,13 @@ void SV_SpawnServer (char *server)
 
 	strcpy (sv.name, server);
 
+	sv.protocol = sv_protocol; // johnfitz
+
 // load progs to get entity field count
 	PR_LoadProgs ();
 
 // allocate server memory
-	sv.max_edicts = CLAMP (256,(int)max_edicts.value,8192); //johnfitz -- max_edicts cvar
+	sv.max_edicts = CLAMP (MIN_EDICTS,(int)max_edicts.value,MAX_EDICTS); //johnfitz -- max_edicts cvar
 	sv.edicts = Hunk_AllocName (sv.max_edicts*pr_edict_size, "edicts");
 
 	sv.datagram.maxsize = sizeof(sv.datagram_buf);
@@ -1183,6 +1408,11 @@ void SV_SpawnServer (char *server)
 
 // create a baseline for more efficient communications
 	SV_CreateBaseline ();
+
+	//johnfitz -- warn if signon buffer larger than standard server can handle
+	if (sv.signon.cursize > 8000-2) //max size that will fit into 8000-sized client->message buffer with 2 extra bytes on the end
+		Con_Warning ("%i byte signon buffer exceeds standard limit of 7998.\n", sv.signon.cursize);
+	//johnfitz
 
 // send serverinfo to all connected clients
 	for (i=0,host_client = svs.clients ; i<svs.maxclients ; i++, host_client++)

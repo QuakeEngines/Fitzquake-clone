@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -97,6 +97,9 @@ cvar_t	r_oldskyleaf = {"r_oldskyleaf", "0"};
 cvar_t	r_drawworld = {"r_drawworld", "1"};
 cvar_t	r_showtris = {"r_showtris", "0"};
 cvar_t	r_showbboxes = {"r_showbboxes", "0"};
+cvar_t	r_lerpmodels = {"r_lerpmodels", "1"};
+cvar_t	r_lerpmove = {"r_lerpmove", "1"};
+cvar_t	r_nolerp_list = {"r_nolerp_list", "progs/flame.mdl,progs/flame2.mdl,progs/braztall.mdl,progs/brazshrt.mdl,progs/longtrch.mdl,progs/flame_pyre.mdl,progs/v_saw.mdl,progs/v_xfist.mdl,progs/h2stuff/newfire.mdl"};
 //johnfitz
 
 /*
@@ -152,19 +155,45 @@ qboolean R_CullBox (vec3_t emins, vec3_t emaxs)
 	}
 	return false;
 }
+/*
+===============
+R_CullModelForEntity -- johnfitz -- uses correct bounds based on rotation
+===============
+*/
+qboolean R_CullModelForEntity (entity_t *e)
+{
+	vec3_t mins, maxs;
+
+	if (e->angles[0] || e->angles[2]) //pitch or roll
+	{
+		VectorAdd (e->origin, e->model->rmins, mins);
+		VectorAdd (e->origin, e->model->rmaxs, maxs);
+	}
+	else if (e->angles[1]) //yaw
+	{
+		VectorAdd (e->origin, e->model->ymins, mins);
+		VectorAdd (e->origin, e->model->ymaxs, maxs);
+	}
+	else //no rotation
+	{
+		VectorAdd (e->origin, e->model->mins, mins);
+		VectorAdd (e->origin, e->model->maxs, maxs);
+	}
+
+	return R_CullBox (mins, maxs);
+}
 
 /*
 ===============
-R_RotateForEntity
+R_RotateForEntity -- johnfitz -- modified to take origin and angles instead of pointer to entity
 ===============
 */
-void R_RotateForEntity (entity_t *e)
+void R_RotateForEntity (vec3_t origin, vec3_t angles)
 {
-    glTranslatef (e->origin[0],  e->origin[1],  e->origin[2]);
-
-    glRotatef (e->angles[1],  0, 0, 1);
-    glRotatef (-e->angles[0],  0, 1, 0);
-    glRotatef (e->angles[2],  1, 0, 0);
+	glTranslatef (origin[0],  origin[1],  origin[2]);
+	glRotatef (angles[1],  0, 0, 1);
+	glRotatef (-angles[0],  0, 1, 0);
+	glRotatef (angles[2],  1, 0, 0);
 }
 
 /*
@@ -335,7 +364,7 @@ void R_Clear (void)
 	unsigned int clearbits;
 
 	clearbits = GL_DEPTH_BUFFER_BIT;
-	if (gl_clear.value) clearbits |= GL_COLOR_BUFFER_BIT;
+	if (gl_clear.value || isIntelVideo) clearbits |= GL_COLOR_BUFFER_BIT; //intel video workarounds from Baker
 	if (gl_stencilbits) clearbits |= GL_STENCIL_BUFFER_BIT;
 	glClear (clearbits);
 }
@@ -425,7 +454,7 @@ void R_SetupView (void)
 R_DrawEntitiesOnList
 =============
 */
-void R_DrawEntitiesOnList (void)
+void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 {
 	extern cvar_t r_vfog; //johnfitz
 	int		i;
@@ -438,6 +467,12 @@ void R_DrawEntitiesOnList (void)
 	{
 		currententity = cl_visedicts[i];
 
+		//johnfitz -- if alphapass is true, draw only alpha entites this time
+		//if alphapass is false, draw only nonalpha entities this time
+		if ((ENTALPHA_DECODE(currententity->alpha) < 1 && !alphapass) ||
+			(ENTALPHA_DECODE(currententity->alpha) == 1 && alphapass))
+			continue;
+
 		//johnfitz -- chasecam
 		if (currententity == &cl_entities[cl.viewentity])
 			currententity->angles[0] *= 0.3;
@@ -445,26 +480,15 @@ void R_DrawEntitiesOnList (void)
 
 		switch (currententity->model->type)
 		{
-		case mod_alias:
-			R_DrawAliasModel (currententity);
-			break;
-#if 0
-		//johnfitz -- if vfog disabled, treat fog as a normal bmodel
-		case mod_fog:
-			if (!r_vfog.value)
+			case mod_alias:
+				R_DrawAliasModel (currententity);
+				break;
+			case mod_brush:
 				R_DrawBrushModel (currententity);
-			break;
-#endif
-		case mod_brush:
-			R_DrawBrushModel (currententity);
-			break;
-
-		case mod_sprite:
-			R_DrawSpriteModel (currententity);
-			break;
-
-		default:
-			break;
+				break;
+			case mod_sprite:
+				R_DrawSpriteModel (currententity);
+				break;
 		}
 	}
 }
@@ -495,6 +519,25 @@ void R_DrawViewModel (void)
 	glDepthRange (0, 0.3);
 	R_DrawAliasModel (currententity);
 	glDepthRange (0, 1);
+}
+
+/*
+================
+R_EmitWirePoint -- johnfitz -- draws a wireframe cross shape for point entities
+================
+*/
+void R_EmitWirePoint (vec3_t origin)
+{
+	int size=8;
+
+	glBegin (GL_LINES);
+	glVertex3f (origin[0]-size, origin[1], origin[2]);
+	glVertex3f (origin[0]+size, origin[1], origin[2]);
+	glVertex3f (origin[0], origin[1]-size, origin[2]);
+	glVertex3f (origin[0], origin[1]+size, origin[2]);
+	glVertex3f (origin[0], origin[1], origin[2]-size);
+	glVertex3f (origin[0], origin[1], origin[2]+size);
+	glEnd ();
 }
 
 /*
@@ -547,16 +590,22 @@ void R_ShowBoundingBoxes (void)
 		if (ed == sv_player)
 			continue; //don't draw player's own bbox
 
-//		if (!SV_VisibleToClient (sv_player, ed, sv.worldmodel))
-//			continue; //don't draw if not in pvs
+//		if (r_showbboxes.value != 2)
+//			if (!SV_VisibleToClient (sv_player, ed, sv.worldmodel))
+//				continue; //don't draw if not in pvs
 
-#if 1
-		VectorAdd (ed->v.mins, ed->v.origin, mins);
-		VectorAdd (ed->v.maxs, ed->v.origin, maxs);
-		R_EmitWireBox (mins, maxs);
-#else
-		R_EmitWireBox (ed->v.absmin, ed->v.absmax);
-#endif
+		if (ed->v.mins[0] == ed->v.maxs[0] && ed->v.mins[1] == ed->v.maxs[1] && ed->v.mins[2] == ed->v.maxs[2])
+		{
+			//point entity
+			R_EmitWirePoint (ed->v.origin);
+		}
+		else
+		{
+			//box entity
+			VectorAdd (ed->v.mins, ed->v.origin, mins);
+			VectorAdd (ed->v.maxs, ed->v.origin, maxs);
+			R_EmitWireBox (mins, maxs);
+		}
 	}
 
 	glColor3f (1,1,1);
@@ -656,6 +705,32 @@ void R_ShowTris (void)
 
 /*
 ================
+R_DrawShadows
+================
+*/
+void R_DrawShadows (void)
+{
+	int i;
+
+	if (!r_shadows.value || !r_drawentities.value || r_drawflat_cheatsafe || r_lightmap_cheatsafe)
+		return;
+
+	for (i=0 ; i<cl_numvisedicts ; i++)
+	{
+		currententity = cl_visedicts[i];
+
+		if (currententity->model->type != mod_alias)
+			continue;
+
+		if (currententity == &cl.viewent)
+			return;
+
+		GL_DrawAliasShadow (currententity);
+	}
+}
+
+/*
+================
 R_RenderScene
 ================
 */
@@ -665,17 +740,21 @@ void R_RenderScene (void)
 
 	Fog_EnableGFog (); //johnfitz
 
-	R_DrawWorld (); // adds static entities to the list
+	Sky_DrawSky (); //johnfitz
+
+	R_DrawWorld ();
 
 	S_ExtraUpdate (); // don't let sound get messed up if going slow
 
-	R_DrawEntitiesOnList ();
+	R_DrawShadows (); //johnfitz -- render entity shadows
+
+	R_DrawEntitiesOnList (false); //johnfitz -- false means this is the pass for nonalpha entities
 
 	R_DrawTextureChains_Water (); //johnfitz -- drawn here since they might have transparency
 
-	R_RenderDlights (); //triangle fan dlights -- johnfitz -- moved after water
+	R_DrawEntitiesOnList (true); //johnfitz -- true means this is the pass for alpha entities
 
-	Fog_DrawVFog (); //johnfitz
+	R_RenderDlights (); //triangle fan dlights -- johnfitz -- moved after water
 
 	R_DrawParticles ();
 

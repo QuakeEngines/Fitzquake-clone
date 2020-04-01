@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -352,7 +352,12 @@ void CL_SendMove (usercmd_t *cmd)
 	MSG_WriteFloat (&buf, cl.mtime[0]);	// so server can get ping times
 
 	for (i=0 ; i<3 ; i++)
-		MSG_WriteAngle (&buf, cl.viewangles[i]);
+		//johnfitz -- 16-bit angles for PROTOCOL_FITZQUAKE
+		if (cl.protocol == PROTOCOL_NETQUAKE)
+			MSG_WriteAngle (&buf, cl.viewangles[i]);
+		else
+			MSG_WriteAngle16 (&buf, cl.viewangles[i]);
+		//johnfitz
 
     MSG_WriteShort (&buf, cmd->forwardmove);
     MSG_WriteShort (&buf, cmd->sidemove);

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -32,6 +32,7 @@ qpic_t		*draw_backtile;
 
 gltexture_t *char_texture; //johnfitz
 qpic_t		*pic_ovr, *pic_ins; //johnfitz -- new cursor handling
+qpic_t		*pic_nul; //johnfitz -- for missing gfx, don't crash
 
 //johnfitz -- new pics
 byte pic_ovr_data[8][8] =
@@ -57,6 +58,18 @@ byte pic_ins_data[9][8] =
 	{ 15, 15,  2,255,255,255,255,255},
 	{ 15, 15,  2,255,255,255,255,255},
 	{255,  2,  2,255,255,255,255,255},
+};
+
+byte pic_nul_data[8][8] =
+{
+	{252,252,252,252,  0,  0,  0,  0},
+	{252,252,252,252,  0,  0,  0,  0},
+	{252,252,252,252,  0,  0,  0,  0},
+	{252,252,252,252,  0,  0,  0,  0},
+	{  0,  0,  0,  0,252,252,252,252},
+	{  0,  0,  0,  0,252,252,252,252},
+	{  0,  0,  0,  0,252,252,252,252},
+	{  0,  0,  0,  0,252,252,252,252},
 };
 
 byte pic_stipple_data[8][8] =
@@ -90,7 +103,7 @@ typedef struct
 	float		sl, tl, sh, th;
 } glpic_t;
 
-int currentcanvas = -1; //johnfitz -- for GL_SetCanvas
+canvastype currentcanvas = CANVAS_NONE; //johnfitz -- for GL_SetCanvas
 
 //==============================================================================
 //
@@ -205,6 +218,7 @@ qpic_t *Draw_PicFromWad (char *name)
 	unsigned offset; //johnfitz
 
 	p = W_GetLumpName (name);
+	if (!p) return pic_nul; //johnfitz
 	gl = (glpic_t *)p->data;
 
 	// load little ones into the scrap
@@ -336,6 +350,7 @@ void Draw_LoadPics (void)
 	unsigned	offset;
 
 	data = W_GetLumpName ("conchars");
+	if (!data) Sys_Error ("Draw_LoadPics: couldn't load conchars");
 	offset = (unsigned)data - (unsigned)wad_base;
 	char_texture = TexMgr_LoadImage (NULL, WADFILENAME":conchars", 128, 128, SRC_INDEXED, data,
 		WADFILENAME, offset, TEXPREF_ALPHA | TEXPREF_NEAREST | TEXPREF_NOPICMIP | TEXPREF_CONCHARS);
@@ -386,12 +401,13 @@ void Draw_Init (void)
 	memset(&scrap_texels, 255, sizeof(scrap_texels));
 	Scrap_Upload (); //creates 2 empty textures
 
-	// load game pics
-	Draw_LoadPics ();
-
 	// create internal pics
 	pic_ins = Draw_MakePic ("ins", 8, 9, &pic_ins_data[0][0]);
 	pic_ovr = Draw_MakePic ("ovr", 8, 8, &pic_ovr_data[0][0]);
+	pic_nul = Draw_MakePic ("nul", 8, 8, &pic_nul_data[0][0]);
+
+	// load game pics
+	Draw_LoadPics ();
 }
 
 //==============================================================================
@@ -598,12 +614,14 @@ Draw_Fill
 Fills a box of pixels with a single color
 =============
 */
-void Draw_Fill (int x, int y, int w, int h, int c)
+void Draw_Fill (int x, int y, int w, int h, int c, float alpha) //johnfitz -- added alpha
 {
 	byte *pal = (byte *)d_8to24table; //johnfitz -- use d_8to24table instead of host_basepal
 
 	glDisable (GL_TEXTURE_2D);
-	glColor3f (pal[c*4]/255.0, pal[c*4+1]/255.0, pal[c*4+2]/255.0);
+	glEnable (GL_BLEND); //johnfitz -- for alpha
+	glDisable (GL_ALPHA_TEST); //johnfitz -- for alpha
+	glColor4f (pal[c*4]/255.0, pal[c*4+1]/255.0, pal[c*4+2]/255.0, alpha); //johnfitz -- added alpha
 
 	glBegin (GL_QUADS);
 	glVertex2f (x,y);
@@ -613,6 +631,8 @@ void Draw_Fill (int x, int y, int w, int h, int c)
 	glEnd ();
 
 	glColor3f (1,1,1);
+	glDisable (GL_BLEND); //johnfitz -- for alpha
+	glEnable (GL_ALPHA_TEST); //johnfitz -- for alpha
 	glEnable (GL_TEXTURE_2D);
 }
 
@@ -656,9 +676,15 @@ Call before beginning any disc IO.
 void Draw_BeginDisc (void)
 {
 	int viewport[4]; //johnfitz
+	canvastype oldcanvas; //johnfitz
 
 	if (!draw_disc)
 		return;
+
+	//johnfitz -- intel video workarounds from Baker
+	if (isIntelVideo)
+		return;
+	//johnfitz
 
 	//johnfitz -- canvas and matrix stuff
 	glGetIntegerv (GL_VIEWPORT, viewport);
@@ -666,11 +692,13 @@ void Draw_BeginDisc (void)
 	glPushMatrix ();
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix ();
-	GL_SetCanvas (CANVAS_DEFAULT);
+	oldcanvas = currentcanvas;
+	GL_SetCanvas (CANVAS_TOPRIGHT);
+	currentcanvas = oldcanvas; // a bit of a hack, since GL_SetCanvas doesn't know we are going to pop the stack
 	//johnfitz
 
 	glDrawBuffer  (GL_FRONT);
-	Draw_Pic (glwidth - 24, 0, draw_disc);
+	Draw_Pic (320 - 24, 0, draw_disc);
 	glDrawBuffer  (GL_BACK);
 
 	//johnfitz -- restore everything so that 3d rendering isn't fucked up
@@ -687,20 +715,21 @@ void Draw_BeginDisc (void)
 GL_SetCanvas -- johnfitz -- support various canvas types
 ================
 */
-void GL_SetCanvas (int canvastype)
+void GL_SetCanvas (canvastype newcanvas)
 {
+	extern vrect_t scr_vrect;
 	float s, w;
 	int lines;
 
-	if (canvastype == currentcanvas)
+	if (newcanvas == currentcanvas)
 		return;
 
-	currentcanvas = canvastype;
+	currentcanvas = newcanvas;
 
 	glMatrixMode(GL_PROJECTION);
     glLoadIdentity ();
 
-	switch(canvastype)
+	switch(newcanvas)
 	{
 	case CANVAS_DEFAULT:
 		glOrtho (0, glwidth, glheight, 0, -99999, 99999);
@@ -733,6 +762,26 @@ void GL_SetCanvas (int canvastype)
 	case CANVAS_WARPIMAGE:
 		glOrtho (0, 128, 0, 128, -99999, 99999);
 		glViewport (glx, gly+glheight-gl_warpimagesize, gl_warpimagesize, gl_warpimagesize);
+		break;
+	case CANVAS_CROSSHAIR: //0,0 is center of viewport
+		s = CLAMP (1.0, scr_crosshaircale.value, 10.0);
+		glOrtho (scr_vrect.width/-2/s, scr_vrect.width/2/s, scr_vrect.height/2/s, scr_vrect.height/-2/s, -99999, 99999);
+		glViewport (scr_vrect.x, glheight - scr_vrect.y - scr_vrect.height, scr_vrect.width & ~1, scr_vrect.height & ~1);
+		break;
+	case CANVAS_BOTTOMLEFT: //used by devstats
+		s = (float)glwidth/vid.conwidth; //use console scale
+		glOrtho (0, 320, 200, 0, -99999, 99999);
+		glViewport (glx, gly, 320*s, 200*s);
+		break;
+	case CANVAS_BOTTOMRIGHT: //used by fps/clock
+		s = (float)glwidth/vid.conwidth; //use console scale
+		glOrtho (0, 320, 200, 0, -99999, 99999);
+		glViewport (glx+glwidth-320*s, gly, 320*s, 200*s);
+		break;
+	case CANVAS_TOPRIGHT: //used by disc
+		s = 1;
+		glOrtho (0, 320, 200, 0, -99999, 99999);
+		glViewport (glx+glwidth-320*s, gly+glheight-200*s, 320*s, 200*s);
 		break;
 	default:
 		Sys_Error ("GL_SetCanvas: bad canvas type");

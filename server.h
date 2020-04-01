@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -66,7 +66,9 @@ typedef struct
 	byte		reliable_datagram_buf[MAX_DATAGRAM];
 
 	sizebuf_t	signon;
-	byte		signon_buf[8192];
+	byte		signon_buf[MAX_MSGLEN-2]; //johnfitz -- was 8192, now uses MAX_MSGLEN
+
+	unsigned	protocol; //johnfitz
 } server_t;
 
 

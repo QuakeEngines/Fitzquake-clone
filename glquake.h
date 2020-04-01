@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -218,13 +218,21 @@ void GL_PolygonOffset (int);
 //the values for GL_ARB_ are identical
 #define GL_COMBINE_EXT			0x8570
 #define GL_COMBINE_RGB_EXT		0x8571
+#define GL_COMBINE_ALPHA_EXT	0x8572
 #define GL_RGB_SCALE_EXT		0x8573
+#define GL_CONSTANT_EXT			0x8576
 #define GL_PRIMARY_COLOR_EXT	0x8577
 #define GL_PREVIOUS_EXT			0x8578
 #define GL_SOURCE0_RGB_EXT		0x8580
 #define GL_SOURCE1_RGB_EXT		0x8581
+#define GL_SOURCE0_ALPHA_EXT	0x8588
+#define GL_SOURCE1_ALPHA_EXT	0x8589
 extern qboolean gl_texture_env_combine;
 //johnfitz
+
+extern qboolean gl_texture_env_add; //johnfitz -- for GL_EXT_texture_env_add
+
+extern qboolean isIntelVideo; //johnfitz -- intel video workarounds from Baker
 
 //johnfitz -- rendering statistics
 extern int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
@@ -232,6 +240,48 @@ extern int rs_dynamiclightmaps, rs_brushpasses, rs_aliaspasses, rs_skypasses;
 extern float rs_megatexels;
 //johnfitz
 
+//johnfitz -- track developer statistics that vary every frame
+extern cvar_t devstats;
+typedef struct {
+	int		packetsize;
+	int		edicts;
+	int		visedicts;
+	int		efrags;
+	int		tempents;
+	int		beams;
+	int		dlights;
+} devstats_t;
+devstats_t dev_stats, dev_peakstats;
+//johnfitz
+
+//ohnfitz -- reduce overflow warning spam
+typedef struct {
+	double	packetsize;
+	double	efrags;
+	double	beams;
+} overflowtimes_t;
+overflowtimes_t dev_overflows; //this stores the last time overflow messages were displayed, not the last time overflows occured
+#define CONSOLE_RESPAM_TIME 3 // seconds between repeated warning messages
+//johnfitz
+
+//johnfitz -- moved here from r_brush.c
+#define MAX_LIGHTMAPS 256 //johnfitz -- was 64
+gltexture_t *lightmap_textures[MAX_LIGHTMAPS]; //johnfitz -- changed to an array
+//johnfitz
+
 int gl_warpimagesize; //johnfitz -- for water warp
 
 qboolean r_drawflat_cheatsafe, r_fullbright_cheatsafe, r_lightmap_cheatsafe, r_drawworld_cheatsafe; //johnfitz
+
+//johnfitz -- fog functions called from outside gl_fog.c
+void Fog_ParseServerMessage (void);
+float *Fog_GetColor (void);
+float Fog_GetDensity (void);
+void Fog_EnableGFog (void);
+void Fog_DisableGFog (void);
+void Fog_StartAdditive (void);
+void Fog_StopAdditive (void);
+void Fog_SetupFrame (void);
+void Fog_NewMap (void);
+void Fog_Init (void);
+//johnfitz

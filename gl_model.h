@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -199,10 +199,18 @@ typedef struct mleaf_s
 	byte		ambient_sound_level[NUM_AMBIENTS];
 } mleaf_t;
 
+//johnfitz -- for clipnodes>32k
+typedef struct mclipnode_s
+{
+	int			planenum;
+	int			children[2]; // negative numbers are contents
+} mclipnode_t;
+//johnfitz
+
 // !!! if this is changed, it must be changed in asm_i386.h too !!!
 typedef struct
 {
-	dclipnode_t	*clipnodes;
+	mclipnode_t	*clipnodes; //johnfitz -- was dclipnode_t
 	mplane_t	*planes;
 	int			firstclipnode;
 	int			lastclipnode;
@@ -336,7 +344,7 @@ extern	trivertx_t	*poseverts[MAXALIASFRAMES];
 // Whole model
 //
 
-typedef enum {mod_brush, mod_sprite, mod_alias, mod_fog} modtype_t; //johnfitz -- added fog type
+typedef enum {mod_brush, mod_sprite, mod_alias} modtype_t;
 
 #define	EF_ROCKET	1			// leave a trail
 #define	EF_GRENADE	2			// leave a trail
@@ -346,6 +354,12 @@ typedef enum {mod_brush, mod_sprite, mod_alias, mod_fog} modtype_t; //johnfitz -
 #define	EF_ZOMGIB	32			// small blood trail
 #define	EF_TRACER2	64			// orange split trail + rotate
 #define	EF_TRACER3	128			// purple trail
+
+//johnfitz -- extra flags for rendering
+#define	MOD_NOLERP		256		//don't lerp when animating
+#define	MOD_NOSHADOW	512		//don't cast a shadow
+#define	MOD_FBRIGHTHACK	1024	//when fullbrights are disabled, use a hack to render this model brighter
+//johnfitz
 
 typedef struct model_s
 {
@@ -362,7 +376,9 @@ typedef struct model_s
 // volume occupied by the model graphics
 //
 	vec3_t		mins, maxs;
-	float		radius;
+	vec3_t		ymins, ymaxs; //johnfitz -- bounds for entities with nonzero yaw
+	vec3_t		rmins, rmaxs; //johnfitz -- bounds for entities with nonzero pitch or roll
+	//johnfitz -- removed float radius;
 
 //
 // solid volume for clipping
@@ -403,7 +419,7 @@ typedef struct model_s
 	int			*surfedges;
 
 	int			numclipnodes;
-	dclipnode_t	*clipnodes;
+	mclipnode_t	*clipnodes; //johnfitz -- was dclipnode_t
 
 	int			nummarksurfaces;
 	msurface_t	**marksurfaces;

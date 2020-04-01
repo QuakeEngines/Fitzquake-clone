@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -68,7 +68,7 @@ typedef struct
 
 #define	SIGNONS		4			// signon messages to receive before connected
 
-#define	MAX_DLIGHTS		32
+#define	MAX_DLIGHTS		64 //johnfitz -- was 32
 typedef struct
 {
 	vec3_t	origin;
@@ -81,7 +81,7 @@ typedef struct
 } dlight_t;
 
 
-#define	MAX_BEAMS	24
+#define	MAX_BEAMS	32 //johnfitz -- was 24
 typedef struct
 {
 	int		entity;
@@ -90,7 +90,7 @@ typedef struct
 	vec3_t	start, end;
 } beam_t;
 
-#define	MAX_EFRAGS		640
+#define	MAX_EFRAGS		2048 //johnfitz -- was 640
 
 #define	MAX_MAPSTRING	2048
 #define	MAX_DEMOS		8
@@ -223,6 +223,8 @@ typedef struct
 
 // frag scoreboard
 	scoreboard_t	*scores;		// [cl.maxclients]
+
+	unsigned	protocol; //johnfitz
 } client_state_t;
 
 
@@ -260,8 +262,9 @@ extern	cvar_t	m_forward;
 extern	cvar_t	m_side;
 
 
-#define	MAX_TEMP_ENTITIES	64			// lightning bolts, etc
-#define	MAX_STATIC_ENTITIES	128			// torches, etc
+#define	MAX_TEMP_ENTITIES	256		//johnfitz -- was 64
+#define	MAX_STATIC_ENTITIES	512		//johnfitz -- was 128
+#define	MAX_VISEDICTS		1024	//johnfitz -- was 256
 
 extern	client_state_t	cl;
 
@@ -272,6 +275,8 @@ extern	lightstyle_t	cl_lightstyle[MAX_LIGHTSTYLES];
 extern	dlight_t		cl_dlights[MAX_DLIGHTS];
 extern	entity_t		cl_temp_entities[MAX_TEMP_ENTITIES];
 extern	beam_t			cl_beams[MAX_BEAMS];
+extern	entity_t		*cl_visedicts[MAX_VISEDICTS];
+extern	int				cl_numvisedicts;
 
 extern	entity_t		*cl_entities; //johnfitz -- was a static array, now on hunk
 extern	int				cl_max_edicts; //johnfitz -- only changes when new map loads
@@ -295,10 +300,6 @@ void CL_Signon4 (void);
 void CL_Disconnect (void);
 void CL_Disconnect_f (void);
 void CL_NextDemo (void);
-
-#define			MAX_VISEDICTS	256
-extern	int				cl_numvisedicts;
-extern	entity_t		*cl_visedicts[MAX_VISEDICTS];
 
 //
 // cl_input

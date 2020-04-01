@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -53,10 +53,7 @@ static HANDLE	hFile;
 static HANDLE	heventParent;
 static HANDLE	heventChild;
 
-void MaskExceptions (void);
 void Sys_InitFloatTime (void);
-void Sys_PushFPCW_SetHigh (void);
-void Sys_PopFPCW (void);
 
 volatile int					sys_checksum;
 
@@ -95,7 +92,7 @@ FILE IO
 ===============================================================================
 */
 
-#define	MAX_HANDLES		32 //johnfitz -- was 10
+#define	MAX_HANDLES		100 //johnfitz -- was 10
 FILE	*sys_handles[MAX_HANDLES];
 
 int		findhandle (void)
@@ -269,27 +266,6 @@ void Sys_MakeCodeWriteable (unsigned long startaddr, unsigned long length)
    		Sys_Error("Protection change failed\n");
 }
 
-
-#ifndef _M_IX86
-
-void Sys_SetFPCW (void)
-{
-}
-
-void Sys_PushFPCW_SetHigh (void)
-{
-}
-
-void Sys_PopFPCW (void)
-{
-}
-
-void MaskExceptions (void)
-{
-}
-
-#endif
-
 /*
 ================
 Sys_Init
@@ -300,9 +276,6 @@ void Sys_Init (void)
 	LARGE_INTEGER	PerformanceFreq;
 	unsigned int	lowpart, highpart;
 	OSVERSIONINFO	vinfo;
-
-	MaskExceptions ();
-	Sys_SetFPCW ();
 
 	if (!QueryPerformanceFrequency (&PerformanceFreq))
 		Sys_Error ("No hardware timer available");
@@ -473,8 +446,6 @@ double Sys_FloatTime (void)
 	unsigned int		temp, t2;
 	double				time;
 
-	Sys_PushFPCW_SetHigh ();
-
 	QueryPerformanceCounter (&PerformanceCount);
 
 	temp = ((unsigned int)PerformanceCount.LowPart >> lowshift) |
@@ -519,8 +490,6 @@ double Sys_FloatTime (void)
 			lastcurtime = curtime;
 		}
 	}
-
-	Sys_PopFPCW ();
 
     return curtime;
 }

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -926,17 +926,19 @@ void Key_Event (int key, qboolean down)
 
 /*
 ===================
-Key_ClearStates
+Key_ClearStates -- johnfitz -- replaced with new function from Baker
 ===================
 */
 void Key_ClearStates (void)
 {
-	int		i;
+   int      i;
 
-	for (i=0 ; i<256 ; i++)
-	{
-		keydown[i] = false;
-		key_repeats[i] = 0;
-	}
+   for (i=0 ; i<256 ; i++)
+   {
+      // If the key is down, trigger the up action if, say, +showscores or another +bind is activated
+      if (keydown[i])
+         Key_Event (i, false);
+
+   }
 }
 

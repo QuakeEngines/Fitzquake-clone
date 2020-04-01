@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -675,6 +675,11 @@ void S_UpdateAmbientSounds (void)
 	if (!snd_ambient)
 		return;
 
+	//johnfitz -- no ambients when disconnected
+	if (cls.state != ca_connected)
+		return;
+	//johnfitz
+
 // calc ambient sound levels
 	if (!cl.worldmodel)
 		return;
@@ -977,12 +982,12 @@ void S_SoundList(void)
 		size = sc->length*sc->width*(sc->stereo+1);
 		total += size;
 		if (sc->loopstart >= 0)
-			Con_Printf ("L");
+			Con_SafePrintf ("L"); //johnfitz -- was Con_Printf
 		else
-			Con_Printf (" ");
-		Con_Printf("(%2db) %6i : %s\n",sc->width*8,  size, sfx->name);
+			Con_SafePrintf (" "); //johnfitz -- was Con_Printf
+		Con_SafePrintf("(%2db) %6i : %s\n",sc->width*8,  size, sfx->name); //johnfitz -- was Con_Printf
 	}
-	Con_Printf ("Total resident: %i\n", total);
+	Con_Printf ("%i sounds, %i bytes\n", num_sfx, total); //johnfitz -- added count
 }
 
 

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -118,7 +118,7 @@ void BOPS_Error (void)
 }
 
 
-#if	!id386
+//#if	!id386//johnfitz -- removing ASM code from fitzquake
 
 /*
 ==================
@@ -227,7 +227,7 @@ if (sides == 0)
 	return sides;
 }
 
-#endif
+//#endif	// !id386//johnfitz -- removing ASM code from fitzquake
 
 //johnfitz -- the opposite of AngleVectors.  this takes forward and generates pitch yaw roll
 //TODO: take right and up vectors to properly set yaw and roll

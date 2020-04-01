@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -24,8 +24,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern cvar_t gl_fullbrights, r_drawflat, gl_overbright, r_oldwater, r_oldskyleaf, r_showtris; //johnfitz
 
-#define	MAX_LIGHTMAPS	64
-extern gltexture_t *lightmap_textures[MAX_LIGHTMAPS];
 extern glpoly_t	*lightmap_polys[MAX_LIGHTMAPS];
 
 byte *SV_FatPVS (vec3_t org, model_t *worldmodel);
@@ -205,6 +203,10 @@ void R_BuildLightmapChains (void)
 	msurface_t *s;
 	int i;
 
+	// clear lightmap chains (already done in r_marksurfaces, but clearing them here to be safe becuase of r_stereo)
+	memset (lightmap_polys, 0, sizeof(lightmap_polys));
+
+	// now rebuild them
 	s = &cl.worldmodel->surfaces[cl.worldmodel->firstmodelsurface];
 	for (i=0 ; i<cl.worldmodel->nummodelsurfaces ; i++, s++)
 		if (s->visframe == r_visframecount && !R_CullBox(s->mins, s->maxs) && !R_BackFaceCull (s))
@@ -620,9 +622,8 @@ void R_DrawWorld (void)
 
 	if (r_fullbright_cheatsafe)
 	{
-		Sky_DrawSky ();
 		R_DrawTextureChains_TextureOnly ();
-		return;
+		goto fullbrights;
 	}
 
 	if (r_lightmap_cheatsafe)
@@ -642,8 +643,6 @@ void R_DrawWorld (void)
 		R_DrawTextureChains_White ();
 		return;
 	}
-
-	Sky_DrawSky ();
 
 	R_DrawTextureChains_NoTexture ();
 
@@ -667,11 +666,27 @@ void R_DrawWorld (void)
 		}
 		else
 		{
+			//to make fog work with multipass lightmapping, need to do one pass
+			//with no fog, one modulate pass with black fog, and one additive
+			//pass with black geometry and normal fog
+			Fog_DisableGFog ();
 			R_DrawTextureChains_TextureOnly ();
+			Fog_EnableGFog ();
 			glDepthMask (GL_FALSE);
 			glEnable (GL_BLEND);
 			glBlendFunc (GL_DST_COLOR, GL_SRC_COLOR); //2x modulate
+			Fog_StartAdditive ();
 			R_DrawLightmapChains ();
+			Fog_StopAdditive ();
+			if (Fog_GetDensity() > 0)
+			{
+				glBlendFunc(GL_ONE, GL_ONE); //add
+				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+				glColor3f(0,0,0);
+				R_DrawTextureChains_TextureOnly ();
+				glColor3f(1,1,1);
+				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+			}
 			glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			glDisable (GL_BLEND);
 			glDepthMask (GL_TRUE);
@@ -689,22 +704,43 @@ void R_DrawWorld (void)
 		}
 		else
 		{
+			//to make fog work with multipass lightmapping, need to do one pass
+			//with no fog, one modulate pass with black fog, and one additive
+			//pass with black geometry and normal fog
+			Fog_DisableGFog ();
 			R_DrawTextureChains_TextureOnly ();
+			Fog_EnableGFog ();
 			glDepthMask (GL_FALSE);
 			glEnable (GL_BLEND);
 			glBlendFunc(GL_ZERO, GL_SRC_COLOR); //modulate
+			Fog_StartAdditive ();
 			R_DrawLightmapChains ();
+			Fog_StopAdditive ();
+			if (Fog_GetDensity() > 0)
+			{
+				glBlendFunc(GL_ONE, GL_ONE); //add
+				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+				glColor3f(0,0,0);
+				R_DrawTextureChains_TextureOnly ();
+				glColor3f(1,1,1);
+				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+			}
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			glDisable (GL_BLEND);
 			glDepthMask (GL_TRUE);
 		}
 	}
 
+fullbrights:
 	if (gl_fullbrights.value)
 	{
 		glDepthMask (GL_FALSE);
 		glEnable (GL_BLEND);
+		glBlendFunc (GL_ONE, GL_ONE);
+		Fog_StartAdditive ();
 		R_DrawTextureChains_Glow ();
+		Fog_StopAdditive ();
+		glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glDisable (GL_BLEND);
 		glDepthMask (GL_TRUE);
 	}

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -77,6 +77,7 @@ cvar_t	developer = {"developer","0"};
 
 cvar_t	temp1 = {"temp1","0"};
 
+cvar_t devstats = {"devstats","0"}; //johnfitz -- track developer statistics that vary every frame
 
 /*
 ================
@@ -93,7 +94,7 @@ void Max_Edicts_f (void)
 		return;
 
 	if (cls.state == ca_connected || sv.active)
-		Con_Printf ("Changes to max_edicts will not take effect until the next time a map is loaded.\n");
+		Con_Printf ("changes will not take effect until the next level load.\n");
 
 	oldval = max_edicts.value;
 }
@@ -159,6 +160,7 @@ void Host_Error (char *error, ...)
 
 	CL_Disconnect ();
 	cls.demonum = -1;
+	cl.intermission = 0; //johnfitz -- for errors during intermissions (changelevel with no map found, etc.)
 
 	inerror = false;
 
@@ -229,7 +231,9 @@ void Host_InitLocal (void)
 	Cvar_RegisterVariable (&host_speeds, NULL);
 	Cvar_RegisterVariable (&host_maxfps, NULL); //johnfitz
 	Cvar_RegisterVariable (&host_timescale, NULL); //johnfitz
+
 	Cvar_RegisterVariable (&max_edicts, Max_Edicts_f); //johnfitz
+	Cvar_RegisterVariable (&devstats, NULL); //johnfitz
 
 	Cvar_RegisterVariable (&sys_ticrate, NULL);
 	Cvar_RegisterVariable (&serverprofile, NULL);
@@ -283,8 +287,7 @@ void Host_WriteConfiguration (void)
 
 		//johnfitz -- extra commands to preserve state
 		fprintf (f, "vid_restart\n");
-		if (in_mlook.state & 1)
-			fprintf (f, "+mlook\n");
+		if (in_mlook.state & 1) fprintf (f, "+mlook\n");
 		//johnfitz
 
 		fclose (f);
@@ -300,6 +303,7 @@ void Host_WriteConfiguration (void)
 
 		Cvar_WriteVariables (f);
 		fprintf (f, "vid_restart\n");
+		if (in_mlook.state & 1) fprintf (f, "+mlook\n");
 
 		fclose (f);
 #endif
@@ -597,6 +601,9 @@ Host_ServerFrame
 */
 void Host_ServerFrame (void)
 {
+	int		i, active; //johnfitz
+	edict_t	*ent; //johnfitz
+
 // run the world state
 	pr_global_struct->frametime = host_frametime;
 
@@ -613,6 +620,22 @@ void Host_ServerFrame (void)
 // always pause in single player if in console or menus
 	if (!sv.paused && (svs.maxclients > 1 || key_dest == key_game) )
 		SV_Physics ();
+
+//johnfitz -- devstats
+	if (cls.signon == SIGNONS)
+	{
+		for (i=0, active=0; i<sv.num_edicts; i++)
+		{
+			ent = EDICT_NUM(i);
+			if (!ent->free)
+				active++;
+		}
+		if (active > 600 && dev_peakstats.edicts <= 600)
+			Con_Warning ("%i edicts exceeds standard limit of 600.\n", active);
+		dev_stats.edicts = active;
+		dev_peakstats.edicts = max(active, dev_peakstats.edicts);
+	}
+//johnfitz
 
 // send all messages to the clients
 	SV_SendClientMessages ();

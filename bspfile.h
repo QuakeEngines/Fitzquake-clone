@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -30,9 +30,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	MAX_MAP_ENTSTRING	65536
 
 #define	MAX_MAP_PLANES		32767
-#define	MAX_MAP_NODES		32767		// because negative shorts are contents
-#define	MAX_MAP_CLIPNODES	32767		//
-#define	MAX_MAP_LEAFS		8192
+#define	MAX_MAP_NODES		32767 // because negative shorts are contents
+#define	MAX_MAP_CLIPNODES	32767
+#define	MAX_MAP_LEAFS		32767 //johnfitz -- was 8192
 #define	MAX_MAP_VERTS		65535
 #define	MAX_MAP_FACES		65535
 #define	MAX_MAP_MARKSURFACES 65535

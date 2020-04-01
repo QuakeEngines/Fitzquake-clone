@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -595,6 +595,8 @@ void R_TeleportSplash (vec3_t org)
 /*
 ===============
 R_RocketTrail
+
+FIXME -- rename function and use #defined types instead of numbers
 ===============
 */
 void R_RocketTrail (vec3_t start, vec3_t end, int type)

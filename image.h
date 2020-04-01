@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -18,9 +18,11 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
-//image.h -- image loading
+//image.h -- image reading / writing
 
-//be sure to free the hunk after using these functions
+//be sure to free the hunk after using these loading functions
 byte *Image_LoadTGA (FILE *f, int *width, int *height);
 byte *Image_LoadPCX (FILE *f, int *width, int *height);
 byte *Image_LoadImage (char *name, int *width, int *height);
+
+qboolean Image_WriteTGA (char *name, byte *data, int width, int height, int bpp, qboolean upsidedown);

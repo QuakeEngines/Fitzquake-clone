@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -64,6 +64,8 @@ typedef struct targaheader_s {
 	unsigned char	pixel_size, attributes;
 } targaheader_t;
 
+#define TARGAHEADERSIZE 18 //size on disk
+
 targaheader_t targa_header;
 
 int fgetLittleShort (FILE *f)
@@ -89,6 +91,54 @@ int fgetLittleLong (FILE *f)
 }
 
 /*
+============
+Image_WriteTGA -- writes RGB or RGBA data to a TGA file
+
+returns true if successful
+
+TODO: support BGRA and BGR formats (since opengl can return them, and we don't have to swap)
+============
+*/
+qboolean Image_WriteTGA (char *name, byte *data, int width, int height, int bpp, qboolean upsidedown)
+{
+	int		handle, i, size, temp, bytes;
+	char	pathname[MAX_OSPATH];
+	byte	header[TARGAHEADERSIZE];
+
+	Sys_mkdir (com_gamedir); //if we've switched to a nonexistant gamedir, create it now so we don't crash
+	sprintf (pathname, "%s/%s", com_gamedir, name);
+	handle = Sys_FileOpenWrite (pathname);
+	if (handle == -1)
+		return false;
+
+	Q_memset (&header, 0, TARGAHEADERSIZE);
+	header[2] = 2; // uncompressed type
+	header[12] = width&255;
+	header[13] = width>>8;
+	header[14] = height&255;
+	header[15] = height>>8;
+	header[16] = bpp; // pixel size
+	if (upsidedown)
+		header[17] = 0x20; //upside-down attribute
+
+	// swap red and blue bytes
+	bytes = bpp/8;
+	size = width*height*bytes;
+	for (i=0; i<size; i+=bytes)
+	{
+		temp = data[i];
+		data[i] = data[i+2];
+		data[i+2] = temp;
+	}
+
+	Sys_FileWrite (handle, &header, TARGAHEADERSIZE);
+	Sys_FileWrite (handle, data, size);
+	Sys_FileClose (handle);
+
+	return true;
+}
+
+/*
 =============
 Image_LoadTGA
 =============
@@ -99,6 +149,8 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	byte			*pixbuf;
 	int				row, column;
 	byte			*targa_rgba;
+	int				realrow; //johnfitz -- fix for upside-down targas
+	qboolean		upside_down; //johnfitz -- fix for upside-down targas
 
 	targa_header.id_length = fgetc(fin);
 	targa_header.colormap_type = fgetc(fin);
@@ -123,6 +175,7 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	columns = targa_header.width;
 	rows = targa_header.height;
 	numPixels = columns * rows;
+	upside_down = !(targa_header.attributes & 0x20); //johnfitz -- fix for upside-down targas
 
 	targa_rgba = Hunk_Alloc (numPixels*4);
 
@@ -133,7 +186,10 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	{
 		for(row=rows-1; row>=0; row--)
 		{
-			pixbuf = targa_rgba + row*columns*4;
+			//johnfitz -- fix for upside-down targas
+			realrow = upside_down ? row : rows - 1 - row;
+			pixbuf = targa_rgba + realrow*columns*4;
+			//johnfitz
 			for(column=0; column<columns; column++)
 			{
 				unsigned char red,green,blue,alphabyte;
@@ -167,7 +223,10 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 		unsigned char red,green,blue,alphabyte,packetHeader,packetSize,j;
 		for(row=rows-1; row>=0; row--)
 		{
-			pixbuf = targa_rgba + row*columns*4;
+			//johnfitz -- fix for upside-down targas
+			realrow = upside_down ? row : rows - 1 - row;
+			pixbuf = targa_rgba + realrow*columns*4;
+			//johnfitz
 			for(column=0; column<columns; )
 			{
 				packetHeader=getc(fin);
@@ -204,7 +263,10 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 								row--;
 							else
 								goto breakOut;
-							pixbuf = targa_rgba + row*columns*4;
+							//johnfitz -- fix for upside-down targas
+							realrow = upside_down ? row : rows - 1 - row;
+							pixbuf = targa_rgba + realrow*columns*4;
+							//johnfitz
 						}
 					}
 				}
@@ -242,7 +304,10 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 								row--;
 							else
 								goto breakOut;
-							pixbuf = targa_rgba + row*columns*4;
+							//johnfitz -- fix for upside-down targas
+							realrow = upside_down ? row : rows - 1 - row;
+							pixbuf = targa_rgba + realrow*columns*4;
+							//johnfitz
 						}
 					}
 				}
@@ -266,19 +331,18 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 
 typedef struct
 {
-    char	manufacturer;
-    char	version;
-    char	encoding;
-    char	bits_per_pixel;
+    char			signature;
+    char			version;
+    char			encoding;
+    char			bits_per_pixel;
     unsigned short	xmin,ymin,xmax,ymax;
-    unsigned short	hres,vres;
-    unsigned char	palette[48];
-    char	reserved;
-    char	color_planes;
+    unsigned short	hdpi,vdpi;
+    byte			colortable[48];
+    char			reserved;
+    char			color_planes;
     unsigned short	bytes_per_line;
     unsigned short	palette_type;
-    char	filler[58];
-    unsigned 	data;			// unbounded
+    char			filler[58];
 } pcxheader_t;
 
 /*
@@ -288,64 +352,72 @@ Image_LoadPCX
 */
 byte *Image_LoadPCX (FILE *f, int *width, int *height)
 {
-	pcxheader_t	*pcx, pcxbuf;
-	byte	palette[768];
-	byte	*pix;
-	int		x, y;
-	int		dataByte, runLength;
-	int		count;
-	byte	*pcx_rgb;
+	pcxheader_t	pcx;
+	int			x, y, w, h, readbyte, runlength, start;
+	byte		*p, *data;
+	byte		palette[768];
 
-	fread (&pcxbuf, 1, sizeof(pcxbuf), f);
+	start = ftell (f); //save start of file (since we might be inside a pak file, SEEK_SET might not be the start of the pcx)
 
-	pcx = &pcxbuf;
+	fread(&pcx, sizeof(pcx), 1, f);
+	pcx.xmin = (unsigned short)LittleShort (pcx.xmin);
+	pcx.ymin = (unsigned short)LittleShort (pcx.ymin);
+	pcx.xmax = (unsigned short)LittleShort (pcx.xmax);
+	pcx.ymax = (unsigned short)LittleShort (pcx.ymax);
+	pcx.bytes_per_line = (unsigned short)LittleShort (pcx.bytes_per_line);
 
-	if (pcx->manufacturer != 0x0a
-		|| pcx->version != 5
-		|| pcx->encoding != 1
-		|| pcx->bits_per_pixel != 8
-		|| pcx->xmax >= 320
-		|| pcx->ymax >= 256)
-		Sys_Error ("Image_LoadPCX: bad pcx file: %s\n", loadfilename);
+	if (pcx.signature != 0x0A)
+		Sys_Error ("'%s' is not a valid PCX file", loadfilename);
 
-	// seek to palette
-	fseek (f, -768, SEEK_END);
+	if (pcx.version != 5)
+		Sys_Error ("'%s' is version %i, should be 5", loadfilename, pcx.version);
+
+	if (pcx.encoding != 1 || pcx.bits_per_pixel != 8 || pcx.color_planes != 1)
+		Sys_Error ("'%s' has wrong encoding or bit depth", loadfilename);
+
+	w = pcx.xmax - pcx.xmin + 1;
+	h = pcx.ymax - pcx.ymin + 1;
+
+	data = Hunk_Alloc((w*h+1)*4); //+1 to allow reading padding byte on last line
+
+	//load palette
+	fseek (f, start + com_filesize - 768, SEEK_SET);
 	fread (palette, 1, 768, f);
 
-	fseek (f, sizeof(pcxbuf) - 4, SEEK_SET);
+	//back to start of image data
+	fseek (f, start + sizeof(pcx), SEEK_SET);
 
-	count = (pcx->xmax+1) * (pcx->ymax+1);
-
-	pcx_rgb = Hunk_Alloc ( count * 4);
-
-	for (y=0 ; y<=pcx->ymax ; y++)
+	for (y=0; y<h; y++)
 	{
-		pix = pcx_rgb + 4*y*(pcx->xmax+1);
-		for (x=0 ; x<=pcx->ymax ; ) //FIXME -- should this be xmax?
-		{
-			dataByte = fgetc(f);
+		p = data + y * w * 4;
 
-			if((dataByte & 0xC0) == 0xC0)
+		for (x=0; x<(pcx.bytes_per_line); ) //read the extra padding byte if necessary
+		{
+			readbyte = fgetc(f);
+
+			if(readbyte >= 0xC0)
 			{
-				runLength = dataByte & 0x3F;
-				dataByte = fgetc(f);
+				runlength = readbyte & 0x3F;
+				readbyte = fgetc(f);
 			}
 			else
-				runLength = 1;
+				runlength = 1;
 
-			while(runLength-- > 0)
+			while(runlength--)
 			{
-				pix[0] = palette[dataByte*3];
-				pix[1] = palette[dataByte*3+1];
-				pix[2] = palette[dataByte*3+2];
-				pix[3] = 255;
-				pix += 4;
+				p[0] = palette[readbyte*3];
+				p[1] = palette[readbyte*3+1];
+				p[2] = palette[readbyte*3+2];
+				p[3] = 255;
+				p += 4;
 				x++;
 			}
 		}
 	}
 
-	*width = (int)(pcx->xmax) + 1;
-	*height = (int)(pcx->ymax) + 1;
-	return pcx_rgb;
+	fclose(f);
+
+	*width = w;
+	*height = h;
+	return data;
 }

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -31,7 +31,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	LINUX_VERSION		1.30
 #define	X11_VERSION			1.10
 
-#define	FITZQUAKE_VERSION	0.80 //johnfitz
+#define	FITZQUAKE_VERSION	0.85 //johnfitz
 
 //define	PARANOID			// speed sapping error checking
 
@@ -43,6 +43,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <assert.h> //johnfitz
 
 #if defined(_WIN32) && !defined(WINDED)
 
@@ -97,17 +98,21 @@ void	VID_UnlockBuffer (void);
 
 #define	ON_EPSILON		0.1			// point on plane side epsilon
 
-#define	MAX_MSGLEN		8000		// max length of a reliable message
-#define	MAX_DATAGRAM	1024		// max length of unreliable message
+#define	MAX_MSGLEN			32000	// max length of a reliable message //johnfitz -- was 8000
+#define	MAX_DATAGRAM		32000	// max length of unreliable message //johnfitz -- was 1024
+
+#define DATAGRAM_MTU		1400	// johnfitz -- actual limit for unreliable messages to nonlocal clients
 
 //
 // per-level limits
 //
 
-//johnfitz -- removed MAX_EDICTS
+#define MIN_EDICTS		256			// johnfitz -- lowest allowed value for max_edicts cvar
+#define MAX_EDICTS		32000		// johnfitz -- highest allowed value for max_edicts cvar
+									// ents past 8192 can't play sounds in the standard protocol
 #define	MAX_LIGHTSTYLES	64
-#define	MAX_MODELS		256			// these are sent over the net as bytes
-#define	MAX_SOUNDS		256			// so they cannot be blindly increased
+#define	MAX_MODELS		2048		// johnfitz -- was 256
+#define	MAX_SOUNDS		2048		// johnfitz -- was 256
 
 #define	SAVEGAME_COMMENT_LENGTH	39
 
@@ -214,13 +219,14 @@ void	VID_UnlockBuffer (void);
 
 typedef struct
 {
-	vec3_t	origin;
-	vec3_t	angles;
-	int		modelindex;
-	int		frame;
-	int		colormap;
-	int		skin;
-	int		effects;
+	vec3_t			origin;
+	vec3_t			angles;
+	unsigned short 	modelindex; //johnfitz -- was int
+	unsigned short 	frame; //johnfitz -- was int
+	unsigned char 	colormap; //johnfitz -- was int
+	unsigned char 	skin; //johnfitz -- was int
+	unsigned char	alpha; //johnfitz -- added
+	int				effects;
 } entity_state_t;
 
 
@@ -239,6 +245,9 @@ typedef struct
 #include "server.h"
 #include "gl_model.h"
 
+#include "image.h" //johnfitz
+#include "gl_texmgr.h" //johnfitz
+
 #include "input.h"
 #include "world.h"
 #include "keys.h"
@@ -249,8 +258,6 @@ typedef struct
 #include "cdaudio.h"
 #include "glquake.h"
 
-#include "image.h" //johnfitz
-#include "gl_texmgr.h" //johnfitz
 
 //=============================================================================
 

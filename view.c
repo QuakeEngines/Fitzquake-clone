@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -45,6 +45,7 @@ cvar_t	cl_bobup = {"cl_bobup","0.5", false};
 cvar_t	v_kicktime = {"v_kicktime", "0.5", false};
 cvar_t	v_kickroll = {"v_kickroll", "0.6", false};
 cvar_t	v_kickpitch = {"v_kickpitch", "0.6", false};
+cvar_t	v_gunkick = {"v_gunkick", "1"}; //johnfitz
 
 cvar_t	v_iyaw_cycle = {"v_iyaw_cycle", "2", false};
 cvar_t	v_iroll_cycle = {"v_iroll_cycle", "0.5", false};
@@ -63,6 +64,7 @@ float	v_dmg_time, v_dmg_roll, v_dmg_pitch;
 
 extern	int			in_forward, in_forward2, in_back;
 
+vec3_t	v_punchangles[2]; //johnfitz -- copied from cl.punchangle.  0 is current, 1 is previous value. never the same unless map just loaded
 
 /*
 ===============
@@ -729,6 +731,8 @@ void V_CalcRefdef (void)
 	vec3_t		angles;
 	float		bob;
 	static float oldz = 0;
+	static vec3_t punch = {0,0,0}; //johnfitz -- v_gunkick
+	float delta; //johnfitz -- v_gunkick
 
 	V_DriftPitch ();
 
@@ -791,8 +795,26 @@ void V_CalcRefdef (void)
 	view->frame = cl.stats[STAT_WEAPONFRAME];
 	view->colormap = vid.colormap;
 
-// set up the refresh position
-	VectorAdd (r_refdef.viewangles, cl.punchangle, r_refdef.viewangles);
+//johnfitz -- v_gunkick
+	if (v_gunkick.value == 1) //original quake kick
+		VectorAdd (r_refdef.viewangles, cl.punchangle, r_refdef.viewangles);
+	if (v_gunkick.value == 2) //lerped kick
+	{
+		for (i=0; i<3; i++)
+			if (punch[i] != v_punchangles[0][i])
+			{
+				//speed determined by how far we need to lerp in 1/10th of a second
+				delta = (v_punchangles[0][i]-v_punchangles[1][i]) * host_frametime * 10;
+
+				if (delta > 0)
+					punch[i] = min(punch[i]+delta, v_punchangles[0][i]);
+				else if (delta < 0)
+					punch[i] = max(punch[i]+delta, v_punchangles[0][i]);
+			}
+
+		VectorAdd (r_refdef.viewangles, punch, r_refdef.viewangles);
+	}
+//johnfitz
 
 // smooth out stair step ups
 	if (!noclip_anglehack && cl.onground && ent->origin[2] - oldz > 0) //johnfitz -- added exception for noclip
@@ -892,6 +914,7 @@ void V_Init (void)
 	Cvar_RegisterVariable (&v_kicktime, NULL);
 	Cvar_RegisterVariable (&v_kickroll, NULL);
 	Cvar_RegisterVariable (&v_kickpitch, NULL);
+	Cvar_RegisterVariable (&v_gunkick, NULL); //johnfitz
 }
 
 

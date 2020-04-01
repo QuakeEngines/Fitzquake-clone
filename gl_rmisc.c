@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -39,6 +39,9 @@ extern cvar_t r_oldskyleaf;
 extern cvar_t r_drawworld;
 extern cvar_t r_showtris;
 extern cvar_t r_showbboxes;
+extern cvar_t r_lerpmodels;
+extern cvar_t r_lerpmove;
+extern cvar_t r_nolerp_list;
 //johnfitz
 
 extern float load_subdivide_size; //johnfitz -- remember what subdivide_size value was when this map was loaded
@@ -47,14 +50,26 @@ extern cvar_t gl_subdivide_size; //johnfitz -- moved here from gl_model.c
 
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
+void R_NoLerpList_f (void); //johnfitz
+
 /*
 ====================
 GL_Overbright_f -- johnfitz
 ====================
 */
-GL_Overbright_f (void)
+void GL_Overbright_f (void)
 {
 	R_RebuildAllLightmaps ();
+}
+
+/*
+====================
+GL_Fullbrights_f -- johnfitz
+====================
+*/
+void GL_Fullbrights_f (void)
+{
+	TexMgr_ReloadNobrightImages ();
 }
 
 /*
@@ -210,9 +225,12 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_showtris, NULL);
 	Cvar_RegisterVariable (&r_showbboxes, NULL);
 	Cvar_RegisterVariable (&gl_farclip, NULL);
-	Cvar_RegisterVariable (&gl_fullbrights, NULL);
+	Cvar_RegisterVariable (&gl_fullbrights, GL_Fullbrights_f);
 	Cvar_RegisterVariable (&gl_overbright, GL_Overbright_f);
 	Cvar_RegisterVariable (&gl_overbright_models, NULL);
+	Cvar_RegisterVariable (&r_lerpmodels, NULL);
+	Cvar_RegisterVariable (&r_lerpmove, NULL);
+	Cvar_RegisterVariable (&r_nolerp_list, R_NoLerpList_f);
 	//johnfitz
 
 	Cvar_RegisterVariable (&gl_subdivide_size, NULL); //johnfitz -- moved here from gl_model.c
@@ -226,6 +244,19 @@ void R_Init (void)
 #ifdef GLTEST
 	Test_Init ();
 #endif
+}
+
+/*
+===============
+R_NoLerpList_f -- johnfitz -- called when r_nolerp_list cvar changes
+===============
+*/
+void R_NoLerpList_f (void)
+{
+	int i;
+
+	for (i=0; i < MAX_MODELS; i++)
+		Mod_SetExtraFlags (cl.model_precache[i]);
 }
 
 /*
@@ -250,6 +281,7 @@ void R_TranslatePlayerSkin (int playernum)
 ===============
 R_TranslateNewPlayerSkin -- johnfitz -- split off of TranslatePlayerSkin -- this is called when
 the skin or model actually changes, instead of just new colors
+added bug fix from bengt jardup
 ===============
 */
 void R_TranslateNewPlayerSkin (int playernum)
@@ -257,6 +289,7 @@ void R_TranslateNewPlayerSkin (int playernum)
 	char		name[64];
 	byte		*pixels;
 	aliashdr_t	*paliashdr;
+	int		skinnum;
 
 //get correct texture pixels
 	currententity = &cl_entities[1+playernum];
@@ -266,20 +299,38 @@ void R_TranslateNewPlayerSkin (int playernum)
 
 	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
 
+	skinnum = currententity->skinnum;
+
 	//TODO: move these tests to the place where skinnum gets received from the server
-	if (currententity->skinnum < 0 || currententity->skinnum >= paliashdr->numskins) {
-		Con_Printf("(%d): Invalid player skin #%d\n", playernum, currententity->skinnum);
-		pixels = (byte *)paliashdr + paliashdr->texels[0];
-	} else
-		pixels = (byte *)paliashdr + paliashdr->texels[currententity->skinnum];
+	if (skinnum < 0 || skinnum >= paliashdr->numskins)
+	{
+		Con_DPrintf("(%d): Invalid player skin #%d\n", playernum, skinnum);
+		skinnum = 0;
+	}
+
+	pixels = (byte *)paliashdr + paliashdr->texels[skinnum]; // This is not a persistent place!
 
 //upload new image
 	sprintf(name, "player_%i", playernum);
-	playertextures[playernum] = TexMgr_LoadImage (NULL, name, paliashdr->skinwidth, paliashdr->skinheight,
-		SRC_INDEXED, pixels, "", (unsigned)pixels, TEXPREF_PAD | TEXPREF_OVERWRITE);
+	playertextures[playernum] = TexMgr_LoadImage (currententity->model, name, paliashdr->skinwidth, paliashdr->skinheight,
+		SRC_INDEXED, pixels, paliashdr->gltextures[skinnum][0]->source_file, paliashdr->gltextures[skinnum][0]->source_offset, TEXPREF_PAD | TEXPREF_OVERWRITE);
 
 //now recolor it
 	R_TranslatePlayerSkin (playernum);
+}
+
+/*
+===============
+R_NewGame -- johnfitz -- handle a game switch
+===============
+*/
+void R_NewGame (void)
+{
+	int i;
+
+	//clear playertexture pointers (the textures themselves were freed by texmgr_newgame)
+	for (i=0; i<MAX_SCOREBOARD; i++)
+		playertextures[i] = NULL;
 }
 
 /*

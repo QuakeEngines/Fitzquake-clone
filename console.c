@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -551,6 +551,24 @@ void Con_Printf (char *fmt, ...)
 
 /*
 ================
+Con_Warning -- johnfitz -- prints a warning to the console
+================
+*/
+void Con_Warning (char *fmt, ...)
+{
+	va_list		argptr;
+	char		msg[MAXPRINTMSG];
+
+	va_start (argptr,fmt);
+	vsprintf (msg,fmt,argptr);
+	va_end (argptr);
+
+	Con_SafePrintf ("\x02Warning: ");
+	Con_Printf ("%s", msg);
+}
+
+/*
+================
 Con_DPrintf
 
 A Con_Printf that only shows up if the "developer" cvar is set
@@ -568,7 +586,29 @@ void Con_DPrintf (char *fmt, ...)
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
 
-	Con_Printf ("%s", msg);
+	Con_SafePrintf ("%s", msg); //johnfitz -- was Con_Printf
+}
+
+/*
+================
+Con_DPrintf2 -- johnfitz -- only prints if "developer" >= 2
+
+currently not used
+================
+*/
+void Con_DPrintf2 (char *fmt, ...)
+{
+	va_list		argptr;
+	char		msg[MAXPRINTMSG];
+
+	if (developer.value >= 2)
+	{
+		va_start (argptr,fmt);
+		vsprintf (msg,fmt,argptr);
+		va_end (argptr);
+
+		Con_Printf ("%s", msg);
+	}
 }
 
 
@@ -702,18 +742,24 @@ extern	cmdalias_t	*cmd_alias;
 ============
 AddToTabList -- johnfitz
 
-tablist is a doubly-linked loop
+tablist is a doubly-linked loop, alphabetized by name
 ============
 */
 void AddToTabList (char *name, char *type)
 {
-	tab_t	*t;
+	tab_t	*t,*insert;
 
 	t = Hunk_Alloc(sizeof(tab_t));
 	t->name = name;
 	t->type = type;
 
-	if (tablist) //list not empty
+	if (!tablist) //create list
+	{
+		tablist = t;
+		t->next = t;
+		t->prev = t;
+	}
+	else if (strcmp(name, tablist->name) < 0) //insert at front
 	{
 		t->next = tablist;
 		t->prev = tablist->prev;
@@ -721,11 +767,20 @@ void AddToTabList (char *name, char *type)
 		t->prev->next = t;
 		tablist = t;
 	}
-	else //list empty
+	else //insert later
 	{
-		tablist = t;
-		t->next = t;
-		t->prev = t;
+		insert = tablist;
+		do
+		{
+			if (strcmp(name, insert->name) < 0)
+				break;
+			insert = insert->next;
+		} while (insert != tablist);
+
+		t->next = insert;
+		t->prev = insert->prev;
+		t->next->prev = t;
+		t->prev->next = t;
 	}
 }
 
@@ -791,6 +846,10 @@ void Con_TabComplete (void)
 	if (partial[0] == 0)
 		return;
 
+//trim trailing space becuase it screws up string comparisons
+	if (i > 0 && partial[i-1] == ' ')
+		partial[i-1] = 0;
+
 // find a match
 	mark = Hunk_LowMark();
 	if (!Q_strlen(key_tabpartial)) //first time through
@@ -802,15 +861,15 @@ void Con_TabComplete (void)
 			return;
 
 		//print list
-		t = tablist->prev; //back through list becuase it's in reverse order
+		t = tablist;
 		do
 		{
 			Con_SafePrintf("   %s (%s)\n", t->name, t->type);
-			t = t->prev;
-		} while (t != tablist->prev);
+			t = t->next;
+		} while (t != tablist);
 
 		//get first match
-		match = tablist->prev->name;
+		match = tablist->name;
 	}
 	else
 	{
@@ -823,13 +882,13 @@ void Con_TabComplete (void)
 		t = tablist;
 		do
 		{
-			if (!Q_strncmp(t->name, partial, strlen(t->name)))
+			if (!Q_strcmp(t->name, partial))
 				break;
 			t = t->next;
 		} while (t != tablist);
 
-		//use next or prev to find next match (reverse since list is backwards)
-		match = keydown[K_SHIFT] ? t->next->name : t->prev->name;
+		//use prev or next to find next match
+		match = keydown[K_SHIFT] ? t->prev->name : t->next->name;
 	}
 	Hunk_FreeToLowMark(mark); //it's okay to free it here becuase match is a pointer to persistent data
 
@@ -1019,7 +1078,7 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 
 //draw version number in bottom right
 	y+=8;
-	sprintf (ver, "FitzQuake %1.2f"/*" beta"*/, (float)FITZQUAKE_VERSION);
+	sprintf (ver, "FitzQuake %1.2f"/*" beta2"*/, (float)FITZQUAKE_VERSION);
 	for (x=0; x<strlen(ver); x++)
 		Draw_Character ((con_linewidth-strlen(ver)+x+2)<<3, y, ver[x] /*+ 128*/);
 }

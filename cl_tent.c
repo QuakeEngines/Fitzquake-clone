@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -97,7 +97,14 @@ void CL_ParseBeam (model_t *m)
 			return;
 		}
 	}
-	Con_Printf ("beam list overflow!\n");
+
+	//johnfitz -- less spammy overflow message
+	if (!dev_overflows.beams || dev_overflows.beams + CONSOLE_RESPAM_TIME < realtime )
+	{
+		Con_Printf ("Beam list overflow!\n");
+		dev_overflows.beams = realtime;
+	}
+	//johnfitz
 }
 
 /*
@@ -287,7 +294,7 @@ CL_UpdateTEnts
 */
 void CL_UpdateTEnts (void)
 {
-	int			i;
+	int			i, j; //johnfitz -- use j instead of using i twice, so we don't corrupt memory
 	beam_t		*b;
 	vec3_t		dist, org;
 	float		d;
@@ -348,8 +355,9 @@ void CL_UpdateTEnts (void)
 			ent->angles[1] = yaw;
 			ent->angles[2] = rand()%360;
 
-			for (i=0 ; i<3 ; i++)
-				org[i] += dist[i]*30;
+			//johnfitz -- use j instead of using i twice, so we don't corrupt memory
+			for (j=0 ; j<3 ; j++)
+				org[j] += dist[j]*30;
 			d -= 30;
 		}
 	}

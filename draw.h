@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -32,7 +32,7 @@ void Draw_TransPicTranslate (int x, int y, qpic_t *pic, int top, int bottom); //
 void Draw_ConsoleBackground (void); //johnfitz -- removed parameter int lines
 void Draw_BeginDisc (void);
 void Draw_TileClear (int x, int y, int w, int h);
-void Draw_Fill (int x, int y, int w, int h, int c);
+void Draw_Fill (int x, int y, int w, int h, int c, float alpha); //johnfitz -- added alpha
 void Draw_FadeScreen (void);
 void Draw_String (int x, int y, char *str);
 qpic_t *Draw_PicFromWad (char *name);

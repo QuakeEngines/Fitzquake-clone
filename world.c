@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -55,7 +55,7 @@ HULL BOXES
 
 
 static	hull_t		box_hull;
-static	dclipnode_t	box_clipnodes[6];
+static	mclipnode_t	box_clipnodes[6]; //johnfitz -- was dclipnode_t
 static	mplane_t	box_planes[6];
 
 /*
@@ -313,6 +313,14 @@ void SV_TouchLinks ( edict_t *ent, areanode_t *node )
 		pr_global_struct->time = sv.time;
 		PR_ExecuteProgram (touch->v.touch);
 
+		//johnfitz -- the PR_ExecuteProgram above can alter the linked edicts -- fix from tyrquake 
+		if (next != l->next && l->next)
+		{
+			Con_Printf ("SV_TouchLinks: next != l->next\n");
+			next = l->next;
+		}
+		//johnfitz
+
 		pr_global_struct->self = old_self;
 		pr_global_struct->other = old_other;
 	}
@@ -462,7 +470,7 @@ POINT TESTING IN HULLS
 ===============================================================================
 */
 
-#if	!id386
+//#if	!id386 //johnfitz -- must use C version of SV_HullPointContents becuase data type changed
 
 /*
 ==================
@@ -473,7 +481,7 @@ SV_HullPointContents
 int SV_HullPointContents (hull_t *hull, int num, vec3_t p)
 {
 	float		d;
-	dclipnode_t	*node;
+	mclipnode_t	*node; //johnfitz -- was dclipnode_t
 	mplane_t	*plane;
 
 	while (num >= 0)
@@ -497,7 +505,7 @@ int SV_HullPointContents (hull_t *hull, int num, vec3_t p)
 	return num;
 }
 
-#endif	// !id386
+//#endif	// !id386 //johnfitz -- must use C version of SV_HullPointContents becuase data type changed
 
 
 /*
@@ -562,7 +570,7 @@ SV_RecursiveHullCheck
 */
 qboolean SV_RecursiveHullCheck (hull_t *hull, int num, float p1f, float p2f, vec3_t p1, vec3_t p2, trace_t *trace)
 {
-	dclipnode_t	*node;
+	mclipnode_t	*node; //johnfitz -- was dclipnode_t
 	mplane_t	*plane;
 	float		t1, t2;
 	float		frac;

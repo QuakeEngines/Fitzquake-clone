@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -120,6 +120,8 @@ Returns false if the entity removed itself.
 qboolean SV_RunThink (edict_t *ent)
 {
 	float	thinktime;
+	float	oldframe; //johnfitz
+	int		i; //johnfitz
 
 	thinktime = ent->v.nextthink;
 	if (thinktime <= 0 || thinktime > sv.time + host_frametime)
@@ -129,11 +131,27 @@ qboolean SV_RunThink (edict_t *ent)
 		thinktime = sv.time;	// don't let things stay in the past.
 								// it is possible to start that way
 								// by a trigger with a local time.
+
+	oldframe = ent->v.frame; //johnfitz
+
 	ent->v.nextthink = 0;
 	pr_global_struct->time = thinktime;
 	pr_global_struct->self = EDICT_TO_PROG(ent);
 	pr_global_struct->other = EDICT_TO_PROG(sv.edicts);
 	PR_ExecuteProgram (ent->v.think);
+
+//johnfitz -- PROTOCOL_FITZQUAKE
+//capture interval to nextthink here and send it to client for better
+//lerp timing, but only if interval is not 0.1 (which client assumes)
+	ent->sendinterval = false;
+	if (!ent->free && ent->v.nextthink && (ent->v.movetype == MOVETYPE_STEP || ent->v.frame != oldframe))
+	{
+		i = Q_rint((ent->v.nextthink-thinktime)*255);
+		if (i >= 0 && i < 256 && i != 25 && i != 26) //25 and 26 are close enough to 0.1 to not send
+			ent->sendinterval = true;
+	}
+//johnfitz
+
 	return !ent->free;
 }
 

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2005 John Fitzgibbons and others
+Copyright (C) 2002-2009 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -273,6 +273,22 @@ void Sbar_DrawPic (int x, int y, qpic_t *pic)
 }
 
 /*
+=============
+Sbar_DrawPicAlpha -- johnfitz
+=============
+*/
+Sbar_DrawPicAlpha (int x, int y, qpic_t *pic, float alpha)
+{
+	glDisable (GL_ALPHA_TEST);
+	glEnable (GL_BLEND);
+	glColor4f(1,1,1,alpha);
+	Draw_Pic (x, y + 24, pic);
+	glColor3f(1,1,1);
+	glDisable (GL_BLEND);
+	glEnable (GL_ALPHA_TEST);
+}
+
+/*
 ================
 Sbar_DrawCharacter -- johnfitz -- rewritten now that GL_SetCanvas is doing the work
 ================
@@ -370,6 +386,8 @@ void Sbar_DrawNum (int x, int y, int num, int digits, int color)
 	char			*ptr;
 	int				l, frame;
 
+	num = min(999,num); //johnfitz -- cap high values rather than truncating number
+
 	l = Sbar_itoa (num, str);
 	ptr = str;
 	if (l > digits)
@@ -466,7 +484,7 @@ void Sbar_UpdateScoreboard (void)
 
 /*
 ===============
-Sbar_SoloScoreboard
+Sbar_SoloScoreboard -- johnfitz -- new layout
 ===============
 */
 void Sbar_SoloScoreboard (void)
@@ -475,27 +493,24 @@ void Sbar_SoloScoreboard (void)
 	int		minutes, seconds, tens, units;
 	int		len;
 
-	sprintf (str,"Monsters:%3i /%3i", cl.stats[STAT_MONSTERS], cl.stats[STAT_TOTALMONSTERS]);
-	Sbar_DrawString (8, 4, str);
-
-	sprintf (str,"Secrets :%3i /%3i", cl.stats[STAT_SECRETS], cl.stats[STAT_TOTALSECRETS]);
+	sprintf (str,"Kills: %i/%i", cl.stats[STAT_MONSTERS], cl.stats[STAT_TOTALMONSTERS]);
 	Sbar_DrawString (8, 12, str);
 
-// time
+	sprintf (str,"Secrets: %i/%i", cl.stats[STAT_SECRETS], cl.stats[STAT_TOTALSECRETS]);
+	Sbar_DrawString (312 - strlen(str)*8, 12, str);
+
 	minutes = cl.time / 60;
 	seconds = cl.time - 60*minutes;
 	tens = seconds / 10;
 	units = seconds - 10*tens;
-	sprintf (str,"Time :%3i:%i%i", minutes, tens, units);
-	Sbar_DrawString (184, 4, str);
+	sprintf (str,"%i:%i%i", minutes, tens, units);
+	Sbar_DrawString (160 - strlen(str)*4, 12, str);
 
-	//johnfitz -- scroll long levelnames
 	len = strlen (cl.levelname);
-	if (len > 22)
-		Sbar_DrawScrollString (152, 12, 160, cl.levelname);
+	if (len > 40)
+		Sbar_DrawScrollString (0, 4, 320, cl.levelname);
 	else
-		Sbar_DrawString (232 - len*4, 12, cl.levelname);
-	//johnfitz
+		Sbar_DrawString (160 - len*4, 4, cl.levelname);
 }
 
 /*
@@ -527,13 +542,13 @@ void Sbar_DrawInventory (void)
 	if (rogue)
 	{
 		if ( cl.stats[STAT_ACTIVEWEAPON] >= RIT_LAVA_NAILGUN )
-			Sbar_DrawPic (0, -24, rsb_invbar[0]);
+			Sbar_DrawPicAlpha (0, -24, rsb_invbar[0], scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
 		else
-			Sbar_DrawPic (0, -24, rsb_invbar[1]);
+			Sbar_DrawPicAlpha (0, -24, rsb_invbar[1], scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
 	}
 	else
 	{
-		Sbar_DrawPic (0, -24, sb_ibar);
+		Sbar_DrawPicAlpha (0, -24, sb_ibar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
 	}
 
 // weapons
@@ -635,7 +650,7 @@ void Sbar_DrawInventory (void)
 // ammo counts
 	for (i=0 ; i<4 ; i++)
 	{
-		sprintf (num, "%3i",cl.stats[STAT_SHELLS+i] );
+		sprintf (num, "%3i", min(999,cl.stats[STAT_SHELLS+i])); //johnfitz -- cap displayed value to 999
 		if (num[0] != ' ')
 			Sbar_DrawCharacter ( (6*i+1)*8 + 2, -24, 18 + num[0] - '0');
 		if (num[1] != ' ')
@@ -757,12 +772,12 @@ void Sbar_DrawFrags (void)
 	// top color
 		color = s->colors & 0xf0;
 		color = Sbar_ColorForMap (color);
-		Draw_Fill (x + 10, 1, 28, 4, color);
+		Draw_Fill (x + 10, 1, 28, 4, color, 1);
 
 	// bottom color
 		color = (s->colors & 15)<<4;
 		color = Sbar_ColorForMap (color);
-		Draw_Fill (x + 10, 5, 28, 3, color);
+		Draw_Fill (x + 10, 5, 28, 3, color, 1);
 
 	// number
 		sprintf (num, "%3i", s->frags);
@@ -813,8 +828,8 @@ void Sbar_DrawFace (void)
 			xofs = ((vid.width - 320)>>1) + 113;
 
 		Sbar_DrawPic (112, 0, rsb_teambord);
-		Draw_Fill (xofs, /*vid.height-*/24+3, 22, 9, top); //johnfitz -- sbar coords are now relative
-		Draw_Fill (xofs, /*vid.height-*/24+12, 22, 9, bottom); //johnfitz -- sbar coords are now relative
+		Draw_Fill (xofs, /*vid.height-*/24+3, 22, 9, top, 1); //johnfitz -- sbar coords are now relative
+		Draw_Fill (xofs, /*vid.height-*/24+12, 22, 9, bottom, 1); //johnfitz -- sbar coords are now relative
 
 		// draw number
 		f = s->frags;
@@ -889,11 +904,11 @@ void Sbar_Draw (void)
 	if (scr_con_current == vid.height)
 		return;		// console is full screen
 
-	if (sb_updates >= vid.numpages && !gl_clear.value) //johnfitz -- gl_clear
-		return;
-
 	if (cl.intermission)
 		return; //johnfitz -- never draw sbar during intermission
+
+	if (sb_updates >= vid.numpages && !gl_clear.value && scr_sbaralpha.value >= 1 && !isIntelVideo) //johnfitz -- gl_clear, scr_sbaralpha, intel workarounds from baker
+		return;
 
 	sb_updates++;
 
@@ -903,6 +918,8 @@ void Sbar_Draw (void)
 	w = CLAMP (320.0f, scr_sbarscale.value * 320.0f, (float)glwidth);
 	if (sb_lines && glwidth > w)
 	{
+		if (scr_sbaralpha.value < 1)
+			Draw_TileClear (0, glheight - sb_lines, glwidth, sb_lines);
 		if (cl.gametype == GAME_DEATHMATCH)
 			Draw_TileClear (w, glheight - sb_lines, glwidth - w, sb_lines);
 		else
@@ -924,23 +941,23 @@ void Sbar_Draw (void)
 
 	if (sb_showscores || cl.stats[STAT_HEALTH] <= 0)
 	{
-		Sbar_DrawPic (0, 0, sb_scorebar);
+		Sbar_DrawPicAlpha (0, 0, sb_scorebar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
 		Sbar_DrawScoreboard ();
 		sb_updates = 0;
 	}
 	else if (scr_viewsize.value < 120) //johnfitz -- check viewsize instead of sb_lines
 	{
-		Sbar_DrawPic (0, 0, sb_sbar);
+		Sbar_DrawPicAlpha (0, 0, sb_sbar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
 
    // keys (hipnotic only)
-      //MED 01/04/97 moved keys here so they would not be overwritten
-      if (hipnotic)
-      {
-         if (cl.items & IT_KEY1)
-            Sbar_DrawPic (209, 3, sb_items[0]);
-         if (cl.items & IT_KEY2)
-            Sbar_DrawPic (209, 12, sb_items[1]);
-      }
+		//MED 01/04/97 moved keys here so they would not be overwritten
+		if (hipnotic)
+		{
+		 if (cl.items & IT_KEY1)
+			Sbar_DrawPic (209, 3, sb_items[0]);
+		 if (cl.items & IT_KEY2)
+			Sbar_DrawPic (209, 12, sb_items[1]);
+		}
    // armor
 		if (cl.items & IT_INVULNERABILITY)
 		{
@@ -1094,8 +1111,8 @@ void Sbar_DeathmatchOverlay (void)
 		top = Sbar_ColorForMap (top);
 		bottom = Sbar_ColorForMap (bottom);
 
-		Draw_Fill ( x, y, 40, 4, top); //johnfitz -- stretched overlays
-		Draw_Fill ( x, y+4, 40, 4, bottom); //johnfitz -- stretched overlays
+		Draw_Fill ( x, y, 40, 4, top, 1); //johnfitz -- stretched overlays
+		Draw_Fill ( x, y+4, 40, 4, bottom, 1); //johnfitz -- stretched overlays
 
 	// draw number
 		f = s->frags;
@@ -1151,7 +1168,7 @@ void Sbar_MiniDeathmatchOverlay (void)
 	scale = CLAMP (1.0, scr_sbarscale.value, (float)glwidth / 320.0); //johnfitz
 
 	//MAX_SCOREBOARDNAME = 32, so total width for this overlay plus sbar is 632, but we can cut off some i guess
-	if (glwidth/scale < 512 || !sb_lines) //johnfitz -- test should consider scr_sbarscale
+	if (glwidth/scale < 512 || scr_viewsize.value >= 120) //johnfitz -- test should consider scr_sbarscale
 		return;
 
 // scores
@@ -1189,8 +1206,8 @@ void Sbar_MiniDeathmatchOverlay (void)
 		top = Sbar_ColorForMap (top);
 		bottom = Sbar_ColorForMap (bottom);
 
-		Draw_Fill ( x, y+1, 40, 4, top);
-		Draw_Fill ( x, y+5, 40, 3, bottom);
+		Draw_Fill ( x, y+1, 40, 4, top, 1);
+		Draw_Fill ( x, y+5, 40, 3, bottom, 1);
 
 	// number
 		f = s->frags;
