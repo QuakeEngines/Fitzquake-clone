@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -300,7 +300,7 @@ scroll the string inside a glscissor region
 ===============
 */
 void Sbar_DrawScrollString (int x, int y, int width, char* str)
-{	
+{
 	float scale;
 	int len, ofs, left;
 
@@ -493,7 +493,7 @@ void Sbar_SoloScoreboard (void)
 	len = strlen (cl.levelname);
 	if (len > 22)
 		Sbar_DrawScrollString (152, 12, 160, cl.levelname);
-	else 
+	else
 		Sbar_DrawString (232 - len*4, 12, cl.levelname);
 	//johnfitz
 }
@@ -799,7 +799,7 @@ void Sbar_DrawFace (void)
 		int				xofs;
 		char			num[12];
 		scoreboard_t	*s;
-		
+
 		s = &cl.scores[cl.viewentity - 1];
 		// draw background
 		top = s->colors & 0xf0;
@@ -835,7 +835,7 @@ void Sbar_DrawFace (void)
 			Sbar_DrawCharacter ( 120, 3, num[1]);
 			Sbar_DrawCharacter ( 127, 3, num[2]);
 		}
-		
+
 		return;
 	}
 // PGM 01/19/97 - team color drawing
@@ -1131,7 +1131,7 @@ void Sbar_DeathmatchOverlay (void)
 
 		y += 10;
 	}
-	
+
 	GL_SetCanvas (CANVAS_SBAR); //johnfitz
 }
 
@@ -1227,7 +1227,7 @@ void Sbar_IntermissionOverlay (void)
 		Sbar_DeathmatchOverlay ();
 		return;
 	}
-	
+
 	GL_SetCanvas (CANVAS_MENU); //johnfitz
 
 	pic = Draw_CachePic ("gfx/complete.lmp");

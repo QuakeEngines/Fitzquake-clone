@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -103,7 +103,7 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	targa_header.id_length = fgetc(fin);
 	targa_header.colormap_type = fgetc(fin);
 	targa_header.image_type = fgetc(fin);
-	
+
 	targa_header.colormap_index = fgetLittleShort(fin);
 	targa_header.colormap_length = fgetLittleShort(fin);
 	targa_header.colormap_size = fgetc(fin);
@@ -114,7 +114,7 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	targa_header.pixel_size = fgetc(fin);
 	targa_header.attributes = fgetc(fin);
 
-	if (targa_header.image_type!=2 && targa_header.image_type!=10) 
+	if (targa_header.image_type!=2 && targa_header.image_type!=10)
 		Sys_Error ("Image_LoadTGA: %s is not a type 2 or type 10 targa\n", loadfilename);
 
 	if (targa_header.colormap_type !=0 || (targa_header.pixel_size!=32 && targa_header.pixel_size!=24))
@@ -125,10 +125,10 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 	numPixels = columns * rows;
 
 	targa_rgba = Hunk_Alloc (numPixels*4);
-	
+
 	if (targa_header.id_length != 0)
 		fseek(fin, targa_header.id_length, SEEK_CUR);  // skip TARGA image comment
-	
+
 	if (targa_header.image_type==2) // Uncompressed, RGB images
 	{
 		for(row=rows-1; row>=0; row--)
@@ -189,7 +189,7 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 							alphabyte = getc(fin);
 							break;
 					}
-	
+
 					for(j=0;j<packetSize;j++)
 					{
 						*pixbuf++=red;
@@ -243,14 +243,14 @@ byte *Image_LoadTGA (FILE *fin, int *width, int *height)
 							else
 								goto breakOut;
 							pixbuf = targa_rgba + row*columns*4;
-						}						
+						}
 					}
 				}
 			}
 			breakOut:;
 		}
 	}
-	
+
 	fclose(fin);
 
 	*width = (int)(targa_header.width);

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -33,7 +33,9 @@ int 		con_linewidth;
 
 float		con_cursorspeed = 4;
 
-#define		CON_TEXTSIZE 64*1024 //johnfitz -- was 16*1024
+#define		CON_TEXTSIZE 65536 //johnfitz -- new default size
+#define		CON_MINSIZE  16384 //johnfitz -- old default, now the minimum size
+int			con_buffersize; //johnfitz -- user can now override default
 
 qboolean 	con_forcedup;		// because no entities to refresh
 
@@ -60,7 +62,7 @@ qboolean	con_debuglog;
 extern	char	key_lines[32][MAXCMDLINE];
 extern	int		edit_line;
 extern	int		key_linepos;
-		
+
 qboolean	con_initialized;
 
 extern void M_Menu_Main_f (void);
@@ -112,7 +114,7 @@ void Con_ToggleConsole_f (void)
 			key_dest = key_game;
 			key_lines[edit_line][1] = 0;	// clear any typing
 			key_linepos = 1;
-			con_backscroll = 0; //johnfitz -- toggleconsole should return you to the bottom of the scrollback		
+			con_backscroll = 0; //johnfitz -- toggleconsole should return you to the bottom of the scrollback
 			history_line = edit_line; //johnfitz -- it should also return you to the bottom of the command history
 		}
 		else
@@ -122,7 +124,7 @@ void Con_ToggleConsole_f (void)
 	}
 	else
 		key_dest = key_console;
-	
+
 	SCR_EndLoadingPlaque ();
 	memset (con_times, 0, sizeof(con_times));
 }
@@ -135,10 +137,10 @@ Con_Clear_f
 void Con_Clear_f (void)
 {
 	if (con_text)
-		Q_memset (con_text, ' ', CON_TEXTSIZE);
+		Q_memset (con_text, ' ', con_buffersize); //johnfitz -- con_buffersize replaces CON_TEXTSIZE
 	con_backscroll = 0; //johnfitz -- if console is empty, being scrolled up is confusing
 }
-				
+
 /*
 ================
 Con_Dump_f -- johnfitz -- adapted from quake2 source
@@ -152,8 +154,8 @@ void Con_Dump_f (void)
 	char	buffer[1024];
 	char	name[MAX_OSPATH];
 
-#if 1 
-	//johnfitz -- there is a security risk in writing files with an arbitrary filename. so, 
+#if 1
+	//johnfitz -- there is a security risk in writing files with an arbitrary filename. so,
 	//until stuffcmd is crippled to alleviate this risk, just force the default filename.
 	sprintf (name, "%s/condump.txt", com_gamedir);
 #else
@@ -218,7 +220,7 @@ void Con_Dump_f (void)
 	fclose (f);
 	Con_Printf ("Dumped console text to %s.\n", name);
 }
-						
+
 /*
 ================
 Con_ClearNotify
@@ -227,12 +229,12 @@ Con_ClearNotify
 void Con_ClearNotify (void)
 {
 	int		i;
-	
+
 	for (i=0 ; i<NUM_CON_TIMES ; i++)
 		con_times[i] = 0;
 }
 
-						
+
 /*
 ================
 Con_MessageMode_f
@@ -246,7 +248,7 @@ void Con_MessageMode_f (void)
 	team_message = false;
 }
 
-						
+
 /*
 ================
 Con_MessageMode2_f
@@ -258,7 +260,7 @@ void Con_MessageMode2_f (void)
 	team_message = true;
 }
 
-						
+
 /*
 ================
 Con_CheckResize
@@ -269,7 +271,8 @@ If the line width has changed, reformat the buffer.
 void Con_CheckResize (void)
 {
 	int		i, j, width, oldwidth, oldtotallines, numlines, numchars;
-	char	tbuf[CON_TEXTSIZE];
+	char	*tbuf; //johnfitz -- tbuf no longer a static array
+	int mark; //johnfitz
 
 	width = (vid.conwidth >> 3) - 2; //johnfitz -- use vid.conwidth instead of vid.width
 
@@ -279,7 +282,7 @@ void Con_CheckResize (void)
 	oldwidth = con_linewidth;
 	con_linewidth = width;
 	oldtotallines = con_totallines;
-	con_totallines = CON_TEXTSIZE / con_linewidth;
+	con_totallines = con_buffersize / con_linewidth; //johnfitz -- con_buffersize replaces CON_TEXTSIZE
 	numlines = oldtotallines;
 
 	if (con_totallines < numlines)
@@ -290,8 +293,11 @@ void Con_CheckResize (void)
 	if (con_linewidth < numchars)
 		numchars = con_linewidth;
 
-	Q_memcpy (tbuf, con_text, CON_TEXTSIZE);
-	Q_memset (con_text, ' ', CON_TEXTSIZE);
+	mark = Hunk_LowMark (); //johnfitz
+	tbuf = Hunk_Alloc (con_buffersize); //johnfitz
+
+	Q_memcpy (tbuf, con_text, con_buffersize);//johnfitz -- con_buffersize replaces CON_TEXTSIZE
+	Q_memset (con_text, ' ', con_buffersize);//johnfitz -- con_buffersize replaces CON_TEXTSIZE
 
 	for (i=0 ; i<numlines ; i++)
 	{
@@ -301,6 +307,8 @@ void Con_CheckResize (void)
 					tbuf[((con_current - i + oldtotallines) % oldtotallines) * oldwidth + j];
 		}
 	}
+
+	Hunk_FreeToLowMark (mark); //johnfitz
 
 	Con_ClearNotify ();
 
@@ -331,17 +339,24 @@ void Con_Init (void)
 		}
 	}
 
-	con_text = Hunk_AllocName (CON_TEXTSIZE, "context");
-	Q_memset (con_text, ' ', CON_TEXTSIZE);
+	//johnfitz -- user settable console buffer size
+	if (COM_CheckParm("-consize"))
+		con_buffersize = max(CON_MINSIZE,Q_atoi(com_argv[COM_CheckParm("-consize")+1])*1024);
+	else
+		con_buffersize = CON_TEXTSIZE;
+	//johnfitz
+
+	con_text = Hunk_AllocName (con_buffersize, "context");//johnfitz -- con_buffersize replaces CON_TEXTSIZE
+	Q_memset (con_text, ' ', con_buffersize);//johnfitz -- con_buffersize replaces CON_TEXTSIZE
 	con_linewidth = -1;
 
 	//johnfitz -- no need to run Con_CheckResize here
 	con_linewidth = 38;
-	con_totallines = CON_TEXTSIZE / con_linewidth;
+	con_totallines = con_buffersize / con_linewidth;//johnfitz -- con_buffersize replaces CON_TEXTSIZE
 	con_backscroll = 0;
 	con_current = con_totallines - 1;
 	//johnfitz
-	
+
 	Con_Printf ("Console initialized.\n");
 
 //
@@ -372,7 +387,7 @@ void Con_Linefeed (void)
 	if (con_backscroll > con_totallines - (glheight>>3) - 1)
 		con_backscroll = con_totallines - (glheight>>3) - 1;
 	//johnfitz
-	
+
 	con_x = 0;
 	con_current++;
 	Q_memset (&con_text[(con_current%con_totallines)*con_linewidth]
@@ -394,7 +409,7 @@ void Con_Print (char *txt)
 	int		c, l;
 	static int	cr;
 	int		mask;
-	
+
 	//con_backscroll = 0; //johnfitz -- better console scrolling
 
 	if (txt[0] == 1)
@@ -432,7 +447,7 @@ void Con_Print (char *txt)
 			cr = false;
 		}
 
-		
+
 		if (!con_x)
 		{
 			Con_Linefeed ();
@@ -460,7 +475,7 @@ void Con_Print (char *txt)
 				con_x = 0;
 			break;
 		}
-		
+
 	}
 }
 
@@ -472,10 +487,10 @@ Con_DebugLog
 */
 void Con_DebugLog(char *file, char *fmt, ...)
 {
-    va_list argptr; 
+    va_list argptr;
     static char data[1024];
     int fd;
-    
+
     va_start(argptr, fmt);
     vsprintf(data, fmt, argptr);
     va_end(argptr);
@@ -499,11 +514,11 @@ void Con_Printf (char *fmt, ...)
 	va_list		argptr;
 	char		msg[MAXPRINTMSG];
 	static qboolean	inupdate;
-	
+
 	va_start (argptr,fmt);
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
-	
+
 // also echo to debugging console
 	Sys_Printf ("%s", msg);
 
@@ -513,13 +528,13 @@ void Con_Printf (char *fmt, ...)
 
 	if (!con_initialized)
 		return;
-		
+
 	if (cls.state == ca_dedicated)
 		return;		// no graphics mode
 
 // write it to the scrollable buffer
 	Con_Print (msg);
-	
+
 // update the screen if the console is displayed
 	if (cls.signon != SIGNONS && !scr_disabled_for_loading )
 	{
@@ -545,14 +560,14 @@ void Con_DPrintf (char *fmt, ...)
 {
 	va_list		argptr;
 	char		msg[MAXPRINTMSG];
-		
+
 	if (!developer.value)
 		return;			// don't confuse non-developers with techie stuff...
 
 	va_start (argptr,fmt);
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
-	
+
 	Con_Printf ("%s", msg);
 }
 
@@ -569,7 +584,7 @@ void Con_SafePrintf (char *fmt, ...)
 	va_list		argptr;
 	char		msg[1024];
 	int			temp;
-		
+
 	va_start (argptr,fmt);
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
@@ -633,7 +648,7 @@ void Con_LogCenterPrint (char *str)
 
 	if (cl.gametype == GAME_DEATHMATCH && con_logcenterprint.value != 2)
 		return; //don't log in deathmatch
-	
+
 	strcpy(con_lastcenterstring, str);
 
 	if (con_logcenterprint.value)
@@ -702,7 +717,7 @@ void AddToTabList (char *name, char *type)
 	{
 		t->next = tablist;
 		t->prev = tablist->prev;
-		t->next->prev = t; 
+		t->next->prev = t;
 		t->prev->next = t;
 		tablist = t;
 	}
@@ -788,7 +803,7 @@ void Con_TabComplete (void)
 
 		//print list
 		t = tablist->prev; //back through list becuase it's in reverse order
-		do 
+		do
 		{
 			Con_SafePrintf("   %s (%s)\n", t->name, t->type);
 			t = t->prev;
@@ -806,7 +821,7 @@ void Con_TabComplete (void)
 
 		//find current match -- can't save a pointer because the list will be rebuilt each time
 		t = tablist;
-		do 
+		do
 		{
 			if (!Q_strncmp(t->name, partial, strlen(t->name)))
 				break;
@@ -870,7 +885,7 @@ void Con_DrawNotify (void)
 		if (time > con_notifytime.value)
 			continue;
 		text = con_text + (i % con_totallines)*con_linewidth;
-		
+
 		clearnotify = 0;
 
 		for (x = 0 ; x < con_linewidth ; x++)
@@ -887,9 +902,9 @@ void Con_DrawNotify (void)
 		char *say_prompt; //johnfitz
 
 		clearnotify = 0;
-	
+
 		x = 0;
-		
+
 		//johnfitz -- distinguish say and say_team
 		if (team_message)
 			say_prompt = "say_team:";
@@ -920,6 +935,7 @@ The input line scrolls horizontally if typing goes beyond the right edge
 */
 void Con_DrawInput (void)
 {
+	extern qpic_t *pic_ovr, *pic_ins; //johnfitz -- new cursor handling
 	extern double key_blinktime;
 	extern int key_insert;
 	int		i, len;
@@ -929,23 +945,23 @@ void Con_DrawInput (void)
 		return;		// don't draw anything
 
 	text = strcpy(c, key_lines[edit_line]);
-	
+
 // pad with one space so we can draw one past the string (in case the cursor is there)
 	len = strlen(key_lines[edit_line]);
 	text[len] = ' ';
 	text[len+1] = 0;
 
-// add the cursor frame
-	if (!((int)((realtime-key_blinktime)*con_cursorspeed) & 1))
-		text[key_linepos] = key_insert ? 95 : 11; //underscore or box
-		
 // prestep if horizontally scrolling
 	if (key_linepos >= con_linewidth)
 		text += 1 + key_linepos - con_linewidth;
-		
+
 // draw input string
 	for (i=0; i <= strlen(text) - 1; i++) //only write enough letters to go from *text to cursor
 		Draw_Character ((i+1)<<3, vid.conheight - 16, text[i]);
+
+// johnfitz -- new cursor handling
+	if (!((int)((realtime-key_blinktime)*con_cursorspeed) & 1))
+		Draw_Pic ((key_linepos+1)<<3, vid.conheight - 16, key_insert ? pic_ins : pic_ovr);
 }
 
 /*
@@ -961,7 +977,7 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 	int				i, x, y, j, sb, rows;
 	char			ver[32];
 	char			*text;
-	
+
 	if (lines <= 0)
 		return;
 
@@ -976,7 +992,7 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 	y = vid.conheight - rows*8;
 	rows -= 2; //for input and version lines
 	sb = (con_backscroll) ? 2 : 0;
-	
+
 	for (i = con_current - rows + 1 ; i <= con_current - sb ; i++, y+=8)
 	{
 		j = i - con_backscroll;
@@ -1000,7 +1016,7 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 // draw the input prompt, user text, and cursor
 	if (drawinput)
 		Con_DrawInput ();
-	
+
 //draw version number in bottom right
 	y+=8;
 	sprintf (ver, "FitzQuake %1.2f"/*" beta"*/, (float)FITZQUAKE_VERSION);

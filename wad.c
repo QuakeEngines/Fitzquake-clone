@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -43,18 +43,18 @@ void W_CleanupName (char *in, char *out)
 {
 	int		i;
 	int		c;
-	
+
 	for (i=0 ; i<16 ; i++ )
 	{
 		c = in[i];
 		if (!c)
 			break;
-			
+
 		if (c >= 'A' && c <= 'Z')
 			c += ('a' - 'A');
 		out[i] = c;
 	}
-	
+
 	for ( ; i< 16 ; i++ )
 		out[i] = 0;
 }
@@ -64,16 +64,16 @@ void W_CleanupName (char *in, char *out)
 W_LoadWadFile
 ====================
 */
-void W_LoadWadFile (char *filename)
+void W_LoadWadFile (void) //johnfitz -- filename is now hard-coded for honesty
 {
 	lumpinfo_t		*lump_p;
 	wadinfo_t		*header;
 	unsigned		i;
 	int				infotableofs;
+	char			*filename = WADFILENAME;
 
 	//johnfitz -- modified to use malloc
 	//TODO: use cache_alloc
-	//TODO: allow for multiple wads
 	int		h, len;
 
 	Draw_BeginDisc ();
@@ -82,20 +82,20 @@ void W_LoadWadFile (char *filename)
 	if (h == -1)
 		Sys_Error ("W_LoadWadFile: couldn't load %s", filename);
 	wad_base = (unsigned char *)malloc (len);
-	Sys_FileRead (h, wad_base, len);                     
+	Sys_FileRead (h, wad_base, len);
 	COM_CloseFile (h);
 	//johnfitz
 
 	header = (wadinfo_t *)wad_base;
-	
+
 	if (header->identification[0] != 'W' || header->identification[1] != 'A'
 	|| header->identification[2] != 'D' || header->identification[3] != '2')
 		Sys_Error ("Wad file %s doesn't have WAD2 id\n",filename);
-		
+
 	wad_numlumps = LittleLong(header->numlumps);
 	infotableofs = LittleLong(header->infotableofs);
 	wad_lumps = (lumpinfo_t *)(wad_base + infotableofs);
-	
+
 	for (i=0, lump_p = wad_lumps ; i<wad_numlumps ; i++,lump_p++)
 	{
 		lump_p->filepos = LittleLong(lump_p->filepos);
@@ -117,15 +117,15 @@ lumpinfo_t	*W_GetLumpinfo (char *name)
 	int		i;
 	lumpinfo_t	*lump_p;
 	char	clean[16];
-	
+
 	W_CleanupName (name, clean);
-	
+
 	for (lump_p=wad_lumps, i=0 ; i<wad_numlumps ; i++,lump_p++)
 	{
 		if (!strcmp(clean, lump_p->name))
 			return lump_p;
 	}
-	
+
 	Sys_Error ("W_GetLumpinfo: %s not found", name);
 	return NULL;
 }
@@ -133,21 +133,21 @@ lumpinfo_t	*W_GetLumpinfo (char *name)
 void *W_GetLumpName (char *name)
 {
 	lumpinfo_t	*lump;
-	
+
 	lump = W_GetLumpinfo (name);
-	
+
 	return (void *)(wad_base + lump->filepos);
 }
 
 void *W_GetLumpNum (int num)
 {
 	lumpinfo_t	*lump;
-	
+
 	if (num < 0 || num > wad_numlumps)
 		Sys_Error ("W_GetLumpNum: bad number: %i", num);
-		
+
 	lump = wad_lumps + num;
-	
+
 	return (void *)(wad_base + lump->filepos);
 }
 
@@ -162,5 +162,5 @@ automatic byte swapping
 void SwapPic (qpic_t *pic)
 {
 	pic->width = LittleLong(pic->width);
-	pic->height = LittleLong(pic->height);	
+	pic->height = LittleLong(pic->height);
 }

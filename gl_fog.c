@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -60,7 +60,7 @@ void Fog_Update (float density, float red, float green, float blue, float time)
 			float f, d;
 
 			f = (fade_done - cl.time) / fade_time;
-			old_density = f * old_density + (1.0 - f) * fog_density; 
+			old_density = f * old_density + (1.0 - f) * fog_density;
 			old_red = f * old_red + (1.0 - f) * fog_red;
 			old_green = f * old_green + (1.0 - f) * fog_green;
 			old_blue = f * old_blue + (1.0 - f) * fog_blue;
@@ -98,7 +98,7 @@ void Fog_ParseServerMessage (void)
 	green = MSG_ReadByte() / 255.0;
 	blue = MSG_ReadByte() / 255.0;
 	time = max(0.0, MSG_ReadShort() / 100.0);
-	
+
 	Fog_Update (density, red, green, blue, time);
 }
 
@@ -226,7 +226,7 @@ void Fog_SetupFrame (void)
 	if (fade_done > cl.time)
 	{
 		f = (fade_done - cl.time) / fade_time;
-		d = f * old_density + (1.0 - f) * fog_density; 
+		d = f * old_density + (1.0 - f) * fog_density;
 		c[0] = f * old_red + (1.0 - f) * fog_red;
 		c[1] = f * old_green + (1.0 - f) * fog_green;
 		c[2] = f * old_blue + (1.0 - f) * fog_blue;
@@ -264,7 +264,7 @@ float Fog_GetDensity (void)
 	if (fade_done > cl.time)
 	{
 		f = (fade_done - cl.time) / fade_time;
-		return f * old_density + (1.0 - f) * fog_density; 
+		return f * old_density + (1.0 - f) * fog_density;
 	}
 	else
 		return fog_density;
@@ -311,7 +311,7 @@ void Fog_SetColorForSky (void)
 	if (fade_done > cl.time)
 	{
 		f = (fade_done - cl.time) / fade_time;
-		d = f * old_density + (1.0 - f) * fog_density; 
+		d = f * old_density + (1.0 - f) * fog_density;
 		c[0] = f * old_red + (1.0 - f) * fog_red;
 		c[1] = f * old_green + (1.0 - f) * fog_green;
 		c[2] = f * old_blue + (1.0 - f) * fog_blue;

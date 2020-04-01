@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -56,6 +56,8 @@ byte		*host_colormap;
 cvar_t	host_framerate = {"host_framerate","0"};	// set for slow motion
 cvar_t	host_speeds = {"host_speeds","0"};			// set for running times
 cvar_t	host_maxfps = {"host_maxfps", "72", true}; //johnfitz
+cvar_t	host_timescale = {"host_timescale", "0"}; //johnfitz
+cvar_t	max_edicts = {"max_edicts", "1024", true}; //johnfitz
 
 cvar_t	sys_ticrate = {"sys_ticrate","0.05"}; // dedicated server
 cvar_t	serverprofile = {"serverprofile","0"};
@@ -76,6 +78,25 @@ cvar_t	developer = {"developer","0"};
 cvar_t	temp1 = {"temp1","0"};
 
 
+/*
+================
+Max_Edicts_f -- johnfitz
+================
+*/
+void Max_Edicts_f (void)
+{
+	static float oldval = 1024; //must match the default value for max_edicts
+
+	//TODO: clamp it here?
+
+	if (max_edicts.value == oldval)
+		return;
+
+	if (cls.state == ca_connected || sv.active)
+		Con_Printf ("Changes to max_edicts will not take effect until the next time a map is loaded.\n");
+
+	oldval = max_edicts.value;
+}
 
 /*
 ================
@@ -86,18 +107,18 @@ void Host_EndGame (char *message, ...)
 {
 	va_list		argptr;
 	char		string[1024];
-	
+
 	va_start (argptr,message);
 	vsprintf (string,message,argptr);
 	va_end (argptr);
 	Con_DPrintf ("Host_EndGame: %s\n",string);
-	
+
 	if (sv.active)
 		Host_ShutdownServer (false);
 
 	if (cls.state == ca_dedicated)
 		Sys_Error ("Host_EndGame: %s\n",string);	// dedicated servers exit
-	
+
 	if (cls.demonum != -1)
 		CL_NextDemo ();
 	else
@@ -118,18 +139,18 @@ void Host_Error (char *error, ...)
 	va_list		argptr;
 	char		string[1024];
 	static	qboolean inerror = false;
-	
+
 	if (inerror)
 		Sys_Error ("Host_Error: recursively entered");
 	inerror = true;
-	
+
 	SCR_EndLoadingPlaque ();		// reenable screen updates
 
 	va_start (argptr,error);
 	vsprintf (string,error,argptr);
 	va_end (argptr);
 	Con_Printf ("Host_Error: %s\n",string);
-	
+
 	if (sv.active)
 		Host_ShutdownServer (false);
 
@@ -154,7 +175,7 @@ void	Host_FindMaxClients (void)
 	int		i;
 
 	svs.maxclients = 1;
-		
+
 	i = COM_CheckParm ("-dedicated");
 	if (i)
 	{
@@ -195,7 +216,6 @@ void	Host_FindMaxClients (void)
 		Cvar_SetValue ("deathmatch", 0.0);
 }
 
-
 /*
 =======================
 Host_InitLocal
@@ -208,6 +228,8 @@ void Host_InitLocal (void)
 	Cvar_RegisterVariable (&host_framerate, NULL);
 	Cvar_RegisterVariable (&host_speeds, NULL);
 	Cvar_RegisterVariable (&host_maxfps, NULL); //johnfitz
+	Cvar_RegisterVariable (&host_timescale, NULL); //johnfitz
+	Cvar_RegisterVariable (&max_edicts, Max_Edicts_f); //johnfitz
 
 	Cvar_RegisterVariable (&sys_ticrate, NULL);
 	Cvar_RegisterVariable (&serverprofile, NULL);
@@ -227,7 +249,7 @@ void Host_InitLocal (void)
 	Cvar_RegisterVariable (&temp1, NULL);
 
 	Host_FindMaxClients ();
-	
+
 	host_time = 1.0;		// so a think at time 0 won't get called
 }
 
@@ -247,17 +269,41 @@ void Host_WriteConfiguration (void)
 // config.cfg cvars
 	if (host_initialized & !isDedicated)
 	{
-		f = fopen (va("%s/config.cfg",com_gamedir), "w");
+		f = fopen (va("%s/config.cfg", com_gamedir), "w");
 		if (!f)
 		{
 			Con_Printf ("Couldn't write config.cfg.\n");
 			return;
 		}
-		
+
+		VID_SyncCvars (); //johnfitz -- write actual current mode to config file, in case cvars were messed with
+
 		Key_WriteBindings (f);
 		Cvar_WriteVariables (f);
 
+		//johnfitz -- extra commands to preserve state
+		fprintf (f, "vid_restart\n");
+		if (in_mlook.state & 1)
+			fprintf (f, "+mlook\n");
+		//johnfitz
+
 		fclose (f);
+
+//johnfitz -- also save fitzquake.rc
+#if 0
+		f = fopen (va("%s/fitzquake.rc", GAMENAME), "w"); //always save in id1
+		if (!f)
+		{
+			Con_Printf ("Couldn't write fitzquake.rc.\n");
+			return;
+		}
+
+		Cvar_WriteVariables (f);
+		fprintf (f, "vid_restart\n");
+
+		fclose (f);
+#endif
+//johnfitz
 	}
 }
 
@@ -266,7 +312,7 @@ void Host_WriteConfiguration (void)
 =================
 SV_ClientPrintf
 
-Sends text across to be displayed 
+Sends text across to be displayed
 FIXME: make this just a stuffed echo?
 =================
 */
@@ -274,11 +320,11 @@ void SV_ClientPrintf (char *fmt, ...)
 {
 	va_list		argptr;
 	char		string[1024];
-	
+
 	va_start (argptr,fmt);
 	vsprintf (string, fmt,argptr);
 	va_end (argptr);
-	
+
 	MSG_WriteByte (&host_client->message, svc_print);
 	MSG_WriteString (&host_client->message, string);
 }
@@ -295,11 +341,11 @@ void SV_BroadcastPrintf (char *fmt, ...)
 	va_list		argptr;
 	char		string[1024];
 	int			i;
-	
+
 	va_start (argptr,fmt);
 	vsprintf (string, fmt,argptr);
 	va_end (argptr);
-	
+
 	for (i=0 ; i<svs.maxclients ; i++)
 		if (svs.clients[i].active && svs.clients[i].spawned)
 		{
@@ -319,11 +365,11 @@ void Host_ClientCommands (char *fmt, ...)
 {
 	va_list		argptr;
 	char		string[1024];
-	
+
 	va_start (argptr,fmt);
 	vsprintf (string, fmt,argptr);
 	va_end (argptr);
-	
+
 	MSG_WriteByte (&host_client->message, svc_stufftext);
 	MSG_WriteString (&host_client->message, string);
 }
@@ -350,7 +396,7 @@ void SV_DropClient (qboolean crash)
 			MSG_WriteByte (&host_client->message, svc_disconnect);
 			NET_SendMessage (host_client->netconnection, &host_client->message);
 		}
-	
+
 		if (host_client->edict && host_client->spawned)
 		{
 		// call the prog function for removing a client
@@ -512,11 +558,15 @@ qboolean Host_FilterTime (float time)
 	host_frametime = realtime - oldrealtime;
 	oldrealtime = realtime;
 
-	if (host_framerate.value > 0)
+	//johnfitz -- host_timescale is more intuitive than host_framerate
+	if (host_timescale.value > 0)
+		host_frametime *= host_timescale.value;
+	//johnfitz
+	else if (host_framerate.value > 0)
 		host_frametime = host_framerate.value;
 	else // don't allow really long or short frames
 		host_frametime = CLAMP (0.001, host_frametime, 0.1); //johnfitz -- use CLAMP
-	
+
 	return true;
 }
 
@@ -547,18 +597,18 @@ Host_ServerFrame
 */
 void Host_ServerFrame (void)
 {
-// run the world state	
+// run the world state
 	pr_global_struct->frametime = host_frametime;
 
 // set the time and clear the general datagram
 	SV_ClearDatagram ();
-	
+
 // check for new clients
 	SV_CheckForNewClients ();
 
 // read client messages
 	SV_RunClients ();
-	
+
 // move things around and think
 // always pause in single player if in console or menus
 	if (!sv.paused && (svs.maxclients > 1 || key_dest == key_game) )
@@ -587,11 +637,11 @@ void _Host_Frame (float time)
 
 // keep the random time dependent
 	rand ();
-	
+
 // decide the simulation time
 	if (!Host_FilterTime (time))
 		return;			// don't run too fast, or packets will flood out
-		
+
 // get new key events
 	Sys_SendKeyEvents ();
 
@@ -606,7 +656,7 @@ void _Host_Frame (float time)
 // if running the server locally, make intentions now
 	if (sv.active)
 		CL_SendCmd ();
-	
+
 //-------------------
 //
 // server operations
@@ -615,7 +665,7 @@ void _Host_Frame (float time)
 
 // check for commands typed to the host
 	Host_GetConsoleCommands ();
-	
+
 	if (sv.active)
 		Host_ServerFrame ();
 
@@ -641,14 +691,14 @@ void _Host_Frame (float time)
 // update video
 	if (host_speeds.value)
 		time1 = Sys_FloatTime ();
-		
+
 	SCR_UpdateScreen ();
 
 	CL_RunParticles (); //johnfitz -- seperated from rendering
 
 	if (host_speeds.value)
 		time2 = Sys_FloatTime ();
-		
+
 // update audio
 	if (cls.signon == SIGNONS)
 	{
@@ -657,7 +707,7 @@ void _Host_Frame (float time)
 	}
 	else
 		S_Update (vec3_origin, vec3_origin, vec3_origin, vec3_origin);
-	
+
 	CDAudio_Update();
 
 	if (host_speeds.value)
@@ -669,7 +719,7 @@ void _Host_Frame (float time)
 		Con_Printf ("%3i tot %3i server %3i gfx %3i snd\n",
 					pass1+pass2+pass3, pass1, pass2, pass3);
 	}
-	
+
 	host_framecount++;
 
 }
@@ -686,14 +736,14 @@ void Host_Frame (float time)
 		_Host_Frame (time);
 		return;
 	}
-	
+
 	time1 = Sys_FloatTime ();
 	_Host_Frame (time);
-	time2 = Sys_FloatTime ();	
-	
+	time2 = Sys_FloatTime ();
+
 	timetotal += time2 - time1;
 	timecount++;
-	
+
 	if (timecount < 1000)
 		return;
 
@@ -717,7 +767,6 @@ Host_Init
 */
 void Host_Init (quakeparms_t *parms)
 {
-
 	if (standard_quake)
 		minimum_memory = MINIMUM_MEMORY;
 	else
@@ -736,16 +785,16 @@ void Host_Init (quakeparms_t *parms)
 
 	Memory_Init (parms->membase, parms->memsize);
 	Cbuf_Init ();
-	Cmd_Init ();	
+	Cmd_Init ();
 	Cvar_Init (); //johnfitz
 	V_Init ();
 	Chase_Init ();
 	COM_Init (parms->basedir);
 	Host_InitLocal ();
-	W_LoadWadFile ("gfx.wad");
+	W_LoadWadFile (); //johnfitz -- filename is now hard-coded for honesty
 	Key_Init ();
-	Con_Init ();	
-	M_Init ();	
+	Con_Init ();
+	M_Init ();
 	PR_Init ();
 	Mod_Init ();
 	NET_Init ();
@@ -755,7 +804,7 @@ void Host_Init (quakeparms_t *parms)
 
 	Con_Printf ("Exe: "__TIME__" "__DATE__"\n");
 	Con_Printf ("%4.1f megabyte heap\n",parms->memsize/ (1024*1024.0));
-	
+
 	if (cls.state != ca_dedicated)
 	{
 		host_colormap = (byte *)COM_LoadHunkFile ("gfx/colormap.lmp");
@@ -770,17 +819,7 @@ void Host_Init (quakeparms_t *parms)
 		Draw_Init ();
 		SCR_Init ();
 		R_Init ();
-
-#ifndef	_WIN32
-	// on Win32, sound initialization has to come before video initialization, so we
-	// can put up a popup if the sound hardware is in use
 		S_Init ();
-#else
-
-	// FIXME: doesn't use the new one-window approach yet
-		S_Init ();
-
-#endif	// _WIN32
 		CDAudio_Init ();
 		Sbar_Init ();
 		CL_Init ();
@@ -790,12 +829,16 @@ void Host_Init (quakeparms_t *parms)
 	}
 
 	Cbuf_InsertText ("exec quake.rc\n");
+//	Cbuf_InsertText ("exec fitzquake.rc\n"); //johnfitz (inserted second so it'll be executed first)
+
+	Cbuf_AddText ("\n\nvid_unlock\n"); //johnfitz -- in case the vid mode was locked during vid_init, we can unlock it now.
+	//note: added two newlines to the front becuase the command buffer swallows one of them.
 
 	Hunk_AllocName (0, "-HOST_HUNKLEVEL-");
 	host_hunklevel = Hunk_LowMark ();
 
 	host_initialized = true;
-	
+
 	Con_Printf ("\n========= Quake Initialized =========\n\n"); //johnfitz - was Sys_Printf
 }
 
@@ -811,7 +854,7 @@ to run quit through here before the final handoff to the sys code.
 void Host_Shutdown(void)
 {
 	static qboolean isdown = false;
-	
+
 	if (isdown)
 	{
 		printf ("recursive shutdown\n");
@@ -822,7 +865,7 @@ void Host_Shutdown(void)
 // keep Con_Printf from trying to update the screen
 	scr_disabled_for_loading = true;
 
-	Host_WriteConfiguration (); 
+	Host_WriteConfiguration ();
 
 	CDAudio_Shutdown ();
 	NET_Shutdown ();

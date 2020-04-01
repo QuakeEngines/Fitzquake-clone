@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -26,7 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 extern qboolean mtexenabled; //johnfitz
 extern cvar_t r_drawflat, gl_overbright_models, gl_fullbrights; //johnfitz
 
-//up to 16 color translated skins 
+//up to 16 color translated skins
 gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz -- changed to an array of pointers
 
 #define NUMVERTEXNORMALS	162
@@ -46,9 +46,6 @@ float	r_avertexnormal_dots[SHADEDOT_QUANT][256] =
 ;
 
 float	*shadedots = r_avertexnormal_dots[0];
-
-int	lastposenum;
-
 
 /*
 =============
@@ -123,7 +120,7 @@ void GL_DrawAliasShadow (aliashdr_t *paliashdr, int posenum)
 		} while (--count);
 
 		glEnd ();
-	}	
+	}
 
 	rs_aliaspasses += paliashdr->numtris; //johnfitz
 
@@ -140,18 +137,10 @@ GL_DrawAliasFrame
 */
 void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 {
-	float	s, t;
 	vec3_t 	vertcolor; //johnfitz -- replaces "float l" for lit support
-	int		i, j;
-	int		index;
-	trivertx_t	*v, *verts;
-	int		list;
+	trivertx_t	*verts;
 	int		*commands; //johnfitz -- renamed from "*order" to reduce confusion
-	vec3_t	point;
-	float	*normal;
 	int		count;
-
-	lastposenum = posenum;
 
 	verts = (trivertx_t *)((byte *)paliashdr + paliashdr->posedata);
 	verts += posenum * paliashdr->poseverts;
@@ -185,7 +174,7 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 			//johnfitz
 
 			commands += 2;
-			
+
 			//johnfitz -- r_drawflat, lit support
 			if (r_drawflat_cheatsafe)
 			{
@@ -198,7 +187,7 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 			}
 			else
 			{
-				vertcolor[0] = shadedots[verts->lightnormalindex] * lightcolor[0]; 
+				vertcolor[0] = shadedots[verts->lightnormalindex] * lightcolor[0];
 				vertcolor[1] = shadedots[verts->lightnormalindex] * lightcolor[1];
 				vertcolor[2] = shadedots[verts->lightnormalindex] * lightcolor[2];
 				glColor3fv (vertcolor);
@@ -217,12 +206,12 @@ void GL_DrawAliasFrame (aliashdr_t *paliashdr, int posenum)
 
 /*
 =================
-R_SetupAliasFrame
+R_SetupAliasFrame -- johnfitz -- modified to return posenum instead of calling GL_DrawAliasFrame itself
 =================
 */
-void R_SetupAliasFrame (int frame, aliashdr_t *paliashdr)
+int R_SetupAliasFrame (aliashdr_t *paliashdr, int frame)
 {
-	int				pose, numposes;
+	int				posenum, numposes;
 	float			interval;
 
 	if ((frame >= paliashdr->numframes) || (frame < 0))
@@ -231,16 +220,16 @@ void R_SetupAliasFrame (int frame, aliashdr_t *paliashdr)
 		frame = 0;
 	}
 
-	pose = paliashdr->frames[frame].firstpose;
+	posenum = paliashdr->frames[frame].firstpose;
 	numposes = paliashdr->frames[frame].numposes;
 
 	if (numposes > 1)
 	{
 		interval = paliashdr->frames[frame].interval;
-		pose += (int)(cl.time / interval) % numposes;
+		posenum += (int)(cl.time / interval) % numposes;
 	}
 
-	GL_DrawAliasFrame (paliashdr, pose);
+	return posenum;
 }
 
 /*
@@ -323,10 +312,8 @@ R_DrawAliasModel -- johnfitz -- almost completely rewritten
 void R_DrawAliasModel (entity_t *e)
 {
 	aliashdr_t	*paliashdr;
-	trivertx_t	*verts, *v;
 	vec3_t		mins, maxs;
-	float		s, t;
-	int			i, anim, index;
+	int			i, anim, posenum;
 	gltexture_t	*tx, *fb;
 
 	VectorAdd (currententity->origin, currententity->model->mins, mins);
@@ -336,8 +323,6 @@ void R_DrawAliasModel (entity_t *e)
 
 	VectorCopy (currententity->origin, r_entorigin);
 	VectorSubtract (r_origin, r_entorigin, modelorg);
-
-	R_SetupAliasLighting (e);
 
 	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
 
@@ -353,6 +338,10 @@ void R_DrawAliasModel (entity_t *e)
 	if (gl_affinemodels.value)
 		glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
 	GL_DisableMultitexture();
+
+	posenum = R_SetupAliasFrame (paliashdr, currententity->frame);
+
+	R_SetupAliasLighting (e);
 
 	//
 	// set up textures
@@ -375,23 +364,23 @@ void R_DrawAliasModel (entity_t *e)
 	if (r_drawflat_cheatsafe)
 	{
 		glDisable (GL_TEXTURE_2D);
-		R_SetupAliasFrame (currententity->frame, paliashdr);
+		GL_DrawAliasFrame (paliashdr, posenum);
 		glEnable (GL_TEXTURE_2D);
 		srand((int) (cl.time * 1000)); //restore randomness
 		goto cleanup;
 	}
 
-	if (r_fullbright_cheatsafe || !cl.worldmodel->lightdata)
+	if (r_fullbright_cheatsafe)
 	{
 		GL_Bind (tx);
-		R_SetupAliasFrame (currententity->frame, paliashdr);
+		GL_DrawAliasFrame (paliashdr, posenum);
 		goto cleanup;
 	}
 
 	if (r_lightmap_cheatsafe)
 	{
 		glDisable (GL_TEXTURE_2D);
-		R_SetupAliasFrame (currententity->frame, paliashdr);
+		GL_DrawAliasFrame (paliashdr, posenum);
 		glEnable (GL_TEXTURE_2D);
 		goto cleanup;
 	}
@@ -401,7 +390,7 @@ void R_DrawAliasModel (entity_t *e)
 		if  (gl_texture_env_combine && gl_mtexable && fb) //case 1: everything in one pass
 		{
 			GL_Bind (tx);
-			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT);
 			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_TEXTURE);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_PRIMARY_COLOR_EXT);
@@ -410,21 +399,21 @@ void R_DrawAliasModel (entity_t *e)
 			GL_Bind (fb);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
 			glEnable(GL_BLEND);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 			glDisable(GL_BLEND);
 			GL_DisableMultitexture();
-			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 		}
 		else if (gl_texture_env_combine) //case 2: overbright in one pass, then fullbright pass
 		{
 		// first pass
 			GL_Bind(tx);
-			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT);
 			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_TEXTURE);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_PRIMARY_COLOR_EXT);
 			glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE_EXT, 2.0f);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 			glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE_EXT, 1.0f);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 		// second pass
@@ -433,7 +422,7 @@ void R_DrawAliasModel (entity_t *e)
 				GL_Bind(fb);
 				glEnable(GL_BLEND);
 				glDepthMask(GL_FALSE);
-				R_SetupAliasFrame (currententity->frame, paliashdr);
+				GL_DrawAliasFrame (paliashdr, posenum);
 				glDepthMask(GL_TRUE);
 				glDisable(GL_BLEND);
 			}
@@ -443,12 +432,12 @@ void R_DrawAliasModel (entity_t *e)
 		// first pass
 			GL_Bind(tx);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 		// second pass
 			glEnable(GL_BLEND);
 			glBlendFunc (GL_ONE, GL_ONE);
 			glDepthMask(GL_FALSE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 			glDepthMask(GL_TRUE);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -459,7 +448,7 @@ void R_DrawAliasModel (entity_t *e)
 				GL_Bind(fb);
 				glEnable(GL_BLEND);
 				glDepthMask(GL_FALSE);
-				R_SetupAliasFrame (currententity->frame, paliashdr);
+				GL_DrawAliasFrame (paliashdr, posenum);
 				glDepthMask(GL_TRUE);
 				glDisable(GL_BLEND);
 			}
@@ -468,10 +457,10 @@ void R_DrawAliasModel (entity_t *e)
 	else
 	{
 		if (!fb) //case 4: no fullbright mask
-		{		
+		{
 			GL_Bind(tx);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 		}
 		else if (gl_mtexable) //case 5: fullbright mask using multitexture
@@ -479,27 +468,27 @@ void R_DrawAliasModel (entity_t *e)
 			GL_DisableMultitexture(); // selects TEXTURE0
 			GL_Bind (tx);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-			GL_EnableMultitexture(); // selects TEXTURE1 
+			GL_EnableMultitexture(); // selects TEXTURE1
 			GL_Bind (fb);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
 			glEnable(GL_BLEND);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 			glDisable(GL_BLEND);
 			GL_DisableMultitexture();
-			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 		}
 		else //case 6: fullbright mask without multitexture
 		{
 		// first pass
 			GL_Bind(tx);
 			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 		// second pass
-			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 			GL_Bind(fb);
 			glEnable(GL_BLEND);
 			glDepthMask(GL_FALSE);
-			R_SetupAliasFrame (currententity->frame, paliashdr);
+			GL_DrawAliasFrame (paliashdr, posenum);
 			glDepthMask(GL_TRUE);
 			glDisable(GL_BLEND);
 		}
@@ -516,7 +505,81 @@ cleanup:
 	if (r_shadows.value)
 	{
 		glDepthMask(GL_FALSE);
-		GL_DrawAliasShadow (paliashdr, lastposenum);
+		GL_DrawAliasShadow (paliashdr, posenum);
 		glDepthMask(GL_TRUE);
 	}
+}
+
+
+/*
+=============
+GL_DrawAliasFrame_ShowTris -- johnfitz
+=============
+*/
+void GL_DrawAliasFrame_ShowTris (aliashdr_t *paliashdr, int posenum)
+{
+	trivertx_t	*verts;
+	int			*commands, count;
+
+	verts = (trivertx_t *)((byte *)paliashdr + paliashdr->posedata);
+	verts += posenum * paliashdr->poseverts;
+	commands = (int *)((byte *)paliashdr + paliashdr->commands);
+
+	while (1)
+	{
+		// get the vertex count and primitive type
+		count = *commands++;
+		if (!count)
+			break;		// done
+
+		if (count < 0)
+		{
+			count = -count;
+			glBegin (GL_TRIANGLE_FAN);
+		}
+		else
+			glBegin (GL_TRIANGLE_STRIP);
+
+		do
+		{
+			commands += 2;
+			glVertex3f (verts->v[0], verts->v[1], verts->v[2]);
+			verts++;
+		} while (--count);
+
+		glEnd ();
+	}
+}
+
+/*
+=================
+R_DrawAliasModel_ShowTris -- johnfitz
+=================
+*/
+void R_DrawAliasModel_ShowTris (entity_t *e)
+{
+	aliashdr_t	*paliashdr;
+	vec3_t		mins, maxs;
+	int			posenum;
+
+	VectorAdd (currententity->origin, currententity->model->mins, mins);
+	VectorAdd (currententity->origin, currententity->model->maxs, maxs);
+	if (R_CullBox (mins, maxs))
+		return;
+
+	VectorCopy (currententity->origin, r_entorigin);
+	VectorSubtract (r_origin, r_entorigin, modelorg);
+
+	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
+
+    glPushMatrix ();
+	R_RotateForEntity (e);
+	glTranslatef (paliashdr->scale_origin[0], paliashdr->scale_origin[1], paliashdr->scale_origin[2]);
+	glScalef (paliashdr->scale[0], paliashdr->scale[1], paliashdr->scale[2]);
+
+	posenum = R_SetupAliasFrame (paliashdr, currententity->frame);
+
+	GL_DrawAliasFrame_ShowTris (paliashdr, posenum);
+
+	glPopMatrix ();
 }

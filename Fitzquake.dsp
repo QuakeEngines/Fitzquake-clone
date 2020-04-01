@@ -1,24 +1,25 @@
-# Microsoft Developer Studio Project File - Name="glquake" - Package Owner=<4>
+# Microsoft Developer Studio Project File - Name="Fitzquake" - Package Owner=<4>
 # Microsoft Developer Studio Generated Build File, Format Version 6.00
 # ** DO NOT EDIT **
 
-# TARGTYPE "Win32 (x86) Application" 0x0101
+# TARGTYPE "Win32 (x86) Console Application" 0x0103
 
-CFG=glquake - Win32 FitzQuake Debug
+CFG=Fitzquake - Win32 Debug
 !MESSAGE This is not a valid makefile. To build this project using NMAKE,
 !MESSAGE use the Export Makefile command and run
 !MESSAGE 
-!MESSAGE NMAKE /f "GLQuake.mak".
+!MESSAGE NMAKE /f "Fitzquake.mak".
 !MESSAGE 
 !MESSAGE You can specify a configuration when running NMAKE
 !MESSAGE by defining the macro CFG on the command line. For example:
 !MESSAGE 
-!MESSAGE NMAKE /f "GLQuake.mak" CFG="glquake - Win32 FitzQuake Debug"
+!MESSAGE NMAKE /f "Fitzquake.mak" CFG="Fitzquake - Win32 Debug"
 !MESSAGE 
 !MESSAGE Possible choices for configuration are:
 !MESSAGE 
-!MESSAGE "glquake - Win32 FitzQuake" (based on "Win32 (x86) Application")
-!MESSAGE "glquake - Win32 FitzQuake Debug" (based on "Win32 (x86) Application")
+!MESSAGE "Fitzquake - Win32 Release" (based on "Win32 (x86) Console Application")
+!MESSAGE "Fitzquake - Win32 Debug" (based on "Win32 (x86) Console Application")
+!MESSAGE "Fitzquake - Win32 Release With Debug Info" (based on "Win32 (x86) Console Application")
 !MESSAGE 
 
 # Begin Project
@@ -26,84 +27,205 @@ CFG=glquake - Win32 FitzQuake Debug
 # PROP Scc_ProjName ""
 # PROP Scc_LocalPath ""
 CPP=cl.exe
-MTL=midl.exe
 RSC=rc.exe
 
-!IF  "$(CFG)" == "glquake - Win32 FitzQuake"
+!IF  "$(CFG)" == "Fitzquake - Win32 Release"
 
 # PROP BASE Use_MFC 0
 # PROP BASE Use_Debug_Libraries 0
-# PROP BASE Output_Dir "glquake___Win32_FitzQuake"
-# PROP BASE Intermediate_Dir "glquake___Win32_FitzQuake"
-# PROP BASE Ignore_Export_Lib 0
+# PROP BASE Output_Dir "Release"
+# PROP BASE Intermediate_Dir "Release"
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 0
-# PROP Output_Dir "glquake___Win32_FitzQuake"
-# PROP Intermediate_Dir "glquake___Win32_FitzQuake"
+# PROP Output_Dir "Release"
+# PROP Intermediate_Dir "Release"
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
-# ADD BASE CPP /nologo /G5 /GX /Ot /Ow /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /YX /FD /c
-# SUBTRACT BASE CPP /Fr
-# ADD CPP /nologo /G5 /GX /Zd /Ot /Ow /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /Fr /YX /FD /c
-# ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /win32
-# ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32
+# ADD BASE CPP /nologo /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_CONSOLE" /D "_MBCS" /YX /FD /c
+# ADD CPP /nologo /G5 /GX /Zd /Ot /Ow /Ob2 /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /FR /YX /FD /c
+# SUBTRACT CPP /Ox
 # ADD BASE RSC /l 0x409 /d "NDEBUG"
 # ADD RSC /l 0x409 /d "NDEBUG"
 BSC32=bscmake.exe
 # ADD BASE BSC32 /nologo
 # ADD BSC32 /nologo
 LINK32=link.exe
-# ADD BASE LINK32 .\dxsdk\sdk\lib\dxguid.lib comctl32.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /machine:I386
-# SUBTRACT BASE LINK32 /profile /map /debug
+# ADD BASE LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:console /machine:I386
 # ADD LINK32 .\dxsdk\sdk\lib\dxguid.lib comctl32.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /machine:I386 /out:"c:\Games\Quake\fitzquake.exe"
-# SUBTRACT LINK32 /profile /map /debug
+# SUBTRACT LINK32 /pdb:none /debug
 
-!ELSEIF  "$(CFG)" == "glquake - Win32 FitzQuake Debug"
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Debug"
 
 # PROP BASE Use_MFC 0
 # PROP BASE Use_Debug_Libraries 1
-# PROP BASE Output_Dir "glquake___Win32_FitzQuake_Debug"
-# PROP BASE Intermediate_Dir "glquake___Win32_FitzQuake_Debug"
-# PROP BASE Ignore_Export_Lib 0
+# PROP BASE Output_Dir "Debug"
+# PROP BASE Intermediate_Dir "Debug"
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 1
-# PROP Output_Dir "glquake___Win32_FitzQuake_Debug"
-# PROP Intermediate_Dir "glquake___Win32_FitzQuake_Debug"
+# PROP Output_Dir "Debug"
+# PROP Intermediate_Dir "Debug"
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
-# ADD BASE CPP /nologo /G5 /ML /GX /ZI /Od /I ".\dxsdk\sdk\inc" /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "GLQUAKE" /FR /YX /FD /c
+# ADD BASE CPP /nologo /W3 /Gm /GX /ZI /Od /D "WIN32" /D "_DEBUG" /D "_CONSOLE" /D "_MBCS" /YX /FD /GZ /c
 # ADD CPP /nologo /G5 /ML /GX /ZI /Od /I ".\dxsdk\sdk\inc" /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "GLQUAKE" /D "DEBUGGL" /FR /YX /FD /c
-# ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /win32
-# ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x409 /d "_DEBUG"
 # ADD RSC /l 0x409 /d "_DEBUG"
 BSC32=bscmake.exe
 # ADD BASE BSC32 /nologo
 # ADD BSC32 /nologo
 LINK32=link.exe
-# ADD BASE LINK32 .\dxsdk\sdk\lib\dxguid.lib comctl32.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /debug /machine:I386
-# SUBTRACT BASE LINK32 /nodefaultlib
+# ADD BASE LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:console /debug /machine:I386 /pdbtype:sept
 # ADD LINK32 .\dxsdk\sdk\lib\dxguid.lib comctl32.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /debug /machine:I386 /out:"C:\Games\Quake\fitzquake.exe"
-# SUBTRACT LINK32 /nodefaultlib
+# SUBTRACT LINK32 /pdb:none
+
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Release With Debug Info"
+
+# PROP BASE Use_MFC 0
+# PROP BASE Use_Debug_Libraries 0
+# PROP BASE Output_Dir "Fitzquake___Win32_Release_With_Debug_Info"
+# PROP BASE Intermediate_Dir "Fitzquake___Win32_Release_With_Debug_Info"
+# PROP BASE Ignore_Export_Lib 0
+# PROP BASE Target_Dir ""
+# PROP Use_MFC 0
+# PROP Use_Debug_Libraries 0
+# PROP Output_Dir "Release_With_Debug_Info"
+# PROP Intermediate_Dir "Release_With_Debug_Info"
+# PROP Ignore_Export_Lib 0
+# PROP Target_Dir ""
+# ADD BASE CPP /nologo /G5 /GX /Zd /Ot /Ow /Ob2 /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /FR /YX /FD /c
+# SUBTRACT BASE CPP /Ox
+# ADD CPP /nologo /G5 /GX /Zi /Ot /Ow /Ob2 /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "GLQUAKE" /FR /YX /FD /c
+# SUBTRACT CPP /Ox
+# ADD BASE RSC /l 0x409 /d "NDEBUG"
+# ADD RSC /l 0x409 /d "NDEBUG"
+BSC32=bscmake.exe
+# ADD BASE BSC32 /nologo
+# ADD BSC32 /nologo
+LINK32=link.exe
+# ADD BASE LINK32 .\dxsdk\sdk\lib\dxguid.lib comctl32.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /machine:I386 /out:"c:\Games\Quake\fitzquake.exe"
+# SUBTRACT BASE LINK32 /pdb:none /debug
+# ADD LINK32 .\dxsdk\sdk\lib\dxguid.lib comctl32.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /debug /machine:I386 /out:"c:\Games\Quake\fitzquake.exe"
+# SUBTRACT LINK32 /pdb:none
 
 !ENDIF 
 
 # Begin Target
 
-# Name "glquake - Win32 FitzQuake"
-# Name "glquake - Win32 FitzQuake Debug"
+# Name "Fitzquake - Win32 Release"
+# Name "Fitzquake - Win32 Debug"
+# Name "Fitzquake - Win32 Release With Debug Info"
 # Begin Group "Source Files"
 
+# PROP Default_Filter "cpp;c;cxx;rc;def;r;odl;idl;hpj;bat"
+# Begin Group "Sound"
+
 # PROP Default_Filter ""
-# Begin Group "Graphics"
+# Begin Source File
+
+SOURCE=.\cd_win.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\snd_dma.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\snd_mem.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\snd_mix.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\snd_mixa.s
+
+!IF  "$(CFG)" == "Fitzquake - Win32 Release"
+
+# Begin Custom Build
+OutDir=.\Release
+InputPath=.\snd_mixa.s
+InputName=snd_mixa
+
+"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	del $(OUTDIR)\$(InputName).spp 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Debug"
+
+# Begin Custom Build
+OutDir=.\Debug
+InputPath=.\snd_mixa.s
+InputName=snd_mixa
+
+"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	del $(OUTDIR)\$(InputName).spp 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Release With Debug Info"
+
+# Begin Custom Build
+OutDir=.\Release_With_Debug_Info
+InputPath=.\snd_mixa.s
+InputName=snd_mixa
+
+"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	del $(OUTDIR)\$(InputName).spp 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\snd_win.c
+# End Source File
+# End Group
+# Begin Group "Client"
 
 # PROP Default_Filter ""
 # Begin Source File
 
 SOURCE=.\chase.c
 # End Source File
+# Begin Source File
+
+SOURCE=.\cl_demo.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\cl_input.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\cl_main.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\cl_parse.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\cl_tent.c
+# End Source File
+# End Group
+# Begin Group "Graphics"
+
+# PROP Default_Filter ""
 # Begin Source File
 
 SOURCE=.\gl_draw.c
@@ -221,41 +343,9 @@ SOURCE=.\net_wins.c
 SOURCE=.\net_wipx.c
 # End Source File
 # End Group
-# Begin Group "Client"
-
-# PROP Default_Filter ""
-# Begin Source File
-
-SOURCE=.\cl_demo.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\cl_input.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\cl_main.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\cl_parse.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\cl_tent.c
-# End Source File
-# End Group
 # Begin Group "Server"
 
 # PROP Default_Filter ""
-# Begin Source File
-
-SOURCE=.\host.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\host_cmd.c
-# End Source File
 # Begin Source File
 
 SOURCE=.\pr_cmds.c
@@ -292,10 +382,10 @@ SOURCE=.\world.c
 
 SOURCE=.\worlda.s
 
-!IF  "$(CFG)" == "glquake - Win32 FitzQuake"
+!IF  "$(CFG)" == "Fitzquake - Win32 Release"
 
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake
+# Begin Custom Build
+OutDir=.\Release
 InputPath=.\worlda.s
 InputName=worlda
 
@@ -307,10 +397,25 @@ InputName=worlda
 	
 # End Custom Build
 
-!ELSEIF  "$(CFG)" == "glquake - Win32 FitzQuake Debug"
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Debug"
 
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake_Debug
+# Begin Custom Build
+OutDir=.\Debug
+InputPath=.\worlda.s
+InputName=worlda
+
+"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	del $(OUTDIR)\$(InputName).spp 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Release With Debug Info"
+
+# Begin Custom Build
+OutDir=.\Release_With_Debug_Info
 InputPath=.\worlda.s
 InputName=worlda
 
@@ -324,67 +429,6 @@ InputName=worlda
 
 !ENDIF 
 
-# End Source File
-# End Group
-# Begin Group "Sound"
-
-# PROP Default_Filter ""
-# Begin Source File
-
-SOURCE=.\cd_win.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\snd_dma.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\snd_mem.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\snd_mix.c
-# End Source File
-# Begin Source File
-
-SOURCE=.\snd_mixa.s
-
-!IF  "$(CFG)" == "glquake - Win32 FitzQuake"
-
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake
-InputPath=.\snd_mixa.s
-InputName=snd_mixa
-
-"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
-	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
-	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
-	del $(OUTDIR)\$(InputName).spp 
-	
-# End Custom Build
-
-!ELSEIF  "$(CFG)" == "glquake - Win32 FitzQuake Debug"
-
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake_Debug
-InputPath=.\snd_mixa.s
-InputName=snd_mixa
-
-"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
-	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
-	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
-	del $(OUTDIR)\$(InputName).spp 
-	
-# End Custom Build
-
-!ENDIF 
-
-# End Source File
-# Begin Source File
-
-SOURCE=.\snd_win.c
 # End Source File
 # End Group
 # Begin Group "UI"
@@ -436,27 +480,50 @@ SOURCE=.\crc.c
 # End Source File
 # Begin Source File
 
+SOURCE=.\host.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\host_cmd.c
+# End Source File
+# Begin Source File
+
 SOURCE=.\math.s
 
-!IF  "$(CFG)" == "glquake - Win32 FitzQuake"
+!IF  "$(CFG)" == "Fitzquake - Win32 Release"
 
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake
+# Begin Custom Build
+OutDir=.\Release
 InputPath=.\math.s
 InputName=math
 
 "$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	cl /EP > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
 	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
 	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
 	del $(OUTDIR)\$(InputName).spp 
 	
 # End Custom Build
 
-!ELSEIF  "$(CFG)" == "glquake - Win32 FitzQuake Debug"
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Debug"
 
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake_Debug
+# Begin Custom Build
+OutDir=.\Debug
+InputPath=.\math.s
+InputName=math
+
+"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	del $(OUTDIR)\$(InputName).spp 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Release With Debug Info"
+
+# Begin Custom Build
+OutDir=.\Release_With_Debug_Info
 InputPath=.\math.s
 InputName=math
 
@@ -483,10 +550,10 @@ SOURCE=.\sys_win.c
 
 SOURCE=.\sys_wina.s
 
-!IF  "$(CFG)" == "glquake - Win32 FitzQuake"
+!IF  "$(CFG)" == "Fitzquake - Win32 Release"
 
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake
+# Begin Custom Build
+OutDir=.\Release
 InputPath=.\sys_wina.s
 InputName=sys_wina
 
@@ -498,10 +565,25 @@ InputName=sys_wina
 	
 # End Custom Build
 
-!ELSEIF  "$(CFG)" == "glquake - Win32 FitzQuake Debug"
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Debug"
 
-# Begin Custom Build - mycoolbuild
-OutDir=.\glquake___Win32_FitzQuake_Debug
+# Begin Custom Build
+OutDir=.\Debug
+InputPath=.\sys_wina.s
+InputName=sys_wina
+
+"$(OUTDIR)\$(InputName).obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	cl /EP /DGLQUAKE > $(OUTDIR)\$(InputName).spp $(InputPath) 
+	gas2masm\gas2masm < $(OUTDIR)\$(InputName).spp >                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	ml /c /Cp /coff /Fo$(OUTDIR)\$(InputName).obj /Zm /Zi                                                                                                                                                                                                    $(OUTDIR)\$(InputName).asm 
+	del $(OUTDIR)\$(InputName).spp 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "Fitzquake - Win32 Release With Debug Info"
+
+# Begin Custom Build
+OutDir=.\Release_With_Debug_Info
 InputPath=.\sys_wina.s
 InputName=sys_wina
 
@@ -518,7 +600,7 @@ InputName=sys_wina
 # End Source File
 # Begin Source File
 
-SOURCE=.\winquake.rc
+SOURCE=.\test.c
 # End Source File
 # Begin Source File
 
@@ -528,15 +610,19 @@ SOURCE=.\zone.c
 # End Group
 # Begin Group "Resource Files"
 
-# PROP Default_Filter "ico;cur;bmp;dlg;rc2;rct;bin;cnt;rtf;gif;jpg;jpeg;jpe"
+# PROP Default_Filter "ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe"
 # Begin Source File
 
 SOURCE=.\fitzquake.ico
 # End Source File
-# End Group
 # Begin Source File
 
 SOURCE=.\progdefs.q1
 # End Source File
+# Begin Source File
+
+SOURCE=.\winquake.rc
+# End Source File
+# End Group
 # End Target
 # End Project

@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -49,7 +49,7 @@ int WIPX_Init (void)
 	struct qsockaddr addr;
 	char	*p;
 	int		r;
-	WORD	wVersionRequested; 
+	WORD	wVersionRequested;
 
 	if (COM_CheckParm ("-noipx"))
 		return -1;
@@ -60,7 +60,7 @@ int WIPX_Init (void)
 
 	if (winsock_initialized == 0)
 	{
-		wVersionRequested = MAKEWORD(1, 1); 
+		wVersionRequested = MAKEWORD(1, 1);
 
 		r = pWSAStartup (MAKEWORD(1, 1), &winsockdata);
 
@@ -253,7 +253,7 @@ int WIPX_Read (int handle, byte *buf, int len, struct qsockaddr *addr)
 
 	if (ret < 4)
 		return 0;
-	
+
 	// remove sequence number, it's only needed for DOS IPX
 	ret -= 4;
 	memcpy(buf, packetBuffer+4, ret);

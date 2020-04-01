@@ -3,7 +3,19 @@ Microsoft Developer Studio Workspace File, Format Version 6.00
 
 ###############################################################################
 
-Project: "glquake"=.\GLQuake.dsp - Package Owner=<4>
+Project: "Fitzquake"=.\Fitzquake.dsp - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
+}}}
+
+###############################################################################
+
+Project: "gas2masm"=.\gas2masm\gas2masm.dsp - Package Owner=<4>
 
 Package=<5>
 {{{

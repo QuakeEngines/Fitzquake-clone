@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -39,7 +39,7 @@ typedef struct
 	unsigned short	*colormap16;	// 256 * VID_GRADES size
 	int				fullbright;		// index of first fullbright color
 	unsigned		rowbytes;	// may be > width if displayed in a window
-	unsigned		width;		
+	unsigned		width;
 	unsigned		height;
 	float			aspect;		// width / height -- < 0 is taller than wide
 	int				numpages;
@@ -55,16 +55,14 @@ typedef struct
 } viddef_t;
 
 extern	viddef_t	vid;				// global video state
-extern	unsigned short	d_8to16table[256];
+//extern	unsigned short	d_8to16table[256]; //johnfitz -- never used
 extern void (*vid_menudrawfn)(void);
 extern void (*vid_menukeyfn)(int key);
+extern void (*vid_menucmdfn)(void); //johnfitz
 
 //johnfitz -- deleted VID_SetPalette and VID_ShiftPalette
 
 void	VID_Init (void); //johnfitz -- removed palette from argument list
-// Called at startup to set up translation tables, takes 256 8 bit RGB values
-// the palette data will go away after the call, so it must be copied off if
-// the video driver will need it again
 
 void	VID_Shutdown (void);
 // Called at shutdown

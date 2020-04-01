@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -50,7 +50,7 @@ vec3_t	skyclip[6] = {
 	{0,-1,1},
 	{0,1,1},
 	{1,0,1},
-	{-1,0,1} 
+	{-1,0,1}
 };
 
 int	st_to_vec[6][3] =
@@ -88,10 +88,11 @@ A sky texture is 256*128, with the left side being a masked overlay
 */
 void Sky_LoadTexture (texture_t *mt)
 {
-	char		texturename[32];
+	char		texturename[64];
 	int			i, j, p, r, g, b, count;
 	byte		*src;
-	byte		data[128*128];
+	static byte	front_data[128*128]; //FIXME: Hunk_Alloc
+	static byte	back_data[128*128]; //FIXME: Hunk_Alloc
 	unsigned	*rgba;
 
 	src = (byte *)mt + mt->offsets[0];
@@ -99,22 +100,22 @@ void Sky_LoadTexture (texture_t *mt)
 // extract back layer and upload
 	for (i=0 ; i<128 ; i++)
 		for (j=0 ; j<128 ; j++)
-			data[(i*128) + j] = src[i*256 + j + 128];
+			back_data[(i*128) + j] = src[i*256 + j + 128];
 
-	sprintf(texturename, "%s_back", mt->name);
-	solidskytexture = TexMgr_LoadImage8 (loadmodel, texturename, 128, 128, data, TEXPREF_NONE);
+	sprintf(texturename, "%s:%s_back", loadmodel->name, mt->name);
+	solidskytexture = TexMgr_LoadImage (loadmodel, texturename, 128, 128, SRC_INDEXED, back_data, "", (unsigned)back_data, TEXPREF_NONE);
 
 // extract front layer and upload
 	for (i=0 ; i<128 ; i++)
 		for (j=0 ; j<128 ; j++)
 		{
-			data[(i*128) + j] = src[i*256 + j];
-			if (data[(i*128) + j] == 0)
-				data[(i*128) + j] = 255;
+			front_data[(i*128) + j] = src[i*256 + j];
+			if (front_data[(i*128) + j] == 0)
+				front_data[(i*128) + j] = 255;
 		}
 
-	sprintf(texturename, "%s_front", mt->name);
-	alphaskytexture = TexMgr_LoadImage8 (loadmodel, texturename, 128, 128, data, TEXPREF_ALPHA);
+	sprintf(texturename, "%s:%s_front", loadmodel->name, mt->name);
+	alphaskytexture = TexMgr_LoadImage (loadmodel, texturename, 128, 128, SRC_INDEXED, front_data, "", (unsigned)front_data, TEXPREF_ALPHA);
 
 // calculate r_fastsky color based on average of all opaque foreground colors
 	r = g = b = count = 0;
@@ -148,37 +149,56 @@ void Sky_LoadSkyBox (char *name)
 	FILE	*f;
 	char	filename[MAX_OSPATH];
 	byte	*data;
+	qboolean nonefound = true;
 
-	if (strcmp(skybox_name, name) == 0) //no change
-		return;
+	if (strcmp(skybox_name, name) == 0)
+		return; //no change
 
 	//purge old textures
 	for (i=0; i<6; i++)
 	{
-		if (skybox_textures[i] != notexture)
+		if (skybox_textures[i] && skybox_textures[i] != notexture)
 			TexMgr_FreeTexture (skybox_textures[i]);
-		skybox_textures[i] = notexture;
+		skybox_textures[i] = NULL;
 	}
 
-	if (name[0] == 0) //turn off skybox if sky is set to ""
+	//turn off skybox if sky is set to ""
+	if (name[0] == 0)
 	{
 		skybox_name[0] = 0;
 		return;
 	}
 
-	for (i=0 ; i<6 ; i++) //load textures
+	//load textures
+	for (i=0; i<6; i++)
 	{
 		mark = Hunk_LowMark ();
 		sprintf (filename, "gfx/env/%s%s", name, suf[i]);
 		data = Image_LoadImage (filename, &width, &height);
 		if (data)
-			skybox_textures[i] = TexMgr_LoadImage32 (cl.worldmodel, filename, width, height, (unsigned *)data, TEXPREF_NONE);
+		{
+			//don't set owner to cl.worldmodel becuase we want to manage these textures ourselves
+			skybox_textures[i] = TexMgr_LoadImage (NULL, filename, width, height, SRC_RGBA, data, filename, 0, TEXPREF_NONE);
+			nonefound = false;
+		}
 		else
 		{
 			Con_Printf ("Couldn't load %s\n", filename);
 			skybox_textures[i] = notexture;
 		}
 		Hunk_FreeToLowMark (mark);
+	}
+
+	if (nonefound) // go back to scrolling sky if skybox is totally missing
+	{
+		for (i=0; i<6; i++)
+		{
+			if (skybox_textures[i] && skybox_textures[i] != notexture)
+				TexMgr_FreeTexture (skybox_textures[i]);
+			skybox_textures[i] = NULL;
+		}
+		skybox_name[0] = 0;
+		return;
 	}
 
 	strcpy(skybox_name, name);
@@ -195,15 +215,14 @@ void Sky_NewMap (void)
 	char	*data;
 	int		i;
 
-	//initially no skybox
-	for (i=0; i<6; i++)
-	{
-		if (skybox_textures[i] && skybox_textures[i] != notexture)
-			TexMgr_FreeTexture (skybox_textures[i]);
-		skybox_textures[i] = notexture;
-	}
-	skybox_name[0] = 0;
+	//
+	// initially no sky
+	//
+	Sky_LoadSkyBox ("");
 
+	//
+	// read worldspawn (this is so ugly, and shouldn't it be done on the server?)
+	//
 	data = cl.worldmodel->entities;
 	if (!data)
 		return; //FIXME: how could this possibly ever happen? -- if there's no
@@ -236,9 +255,9 @@ void Sky_NewMap (void)
 			Sky_LoadSkyBox(value);
 
 #if 1 //also accept non-standard keys
-		else if (!strcmp("skyname", key))
+		else if (!strcmp("skyname", key)) //half-life
 			Sky_LoadSkyBox(value);
-		else if (!strcmp("qlsky", key))
+		else if (!strcmp("qlsky", key)) //quake lives
 			Sky_LoadSkyBox(value);
 #endif
 	}
@@ -271,11 +290,16 @@ Sky_Init
 */
 void Sky_Init (void)
 {
+	int		i;
+
 	Cvar_RegisterVariable (&r_fastsky, NULL);
 	Cvar_RegisterVariable (&r_sky_quality, NULL);
 	Cvar_RegisterVariable (&r_skyalpha, NULL);
 
 	Cmd_AddCommand ("sky",Sky_SkyCommand_f);
+
+	for (i=0; i<6; i++)
+		skybox_textures[i] = NULL;
 }
 
 //==============================================================================
@@ -381,7 +405,7 @@ void Sky_ClipPoly (int nump, vec3_t vecs, int stage)
 	if (nump > MAX_CLIP_VERTS-2)
 		Sys_Error ("Sky_ClipPoly: MAX_CLIP_VERTS");
 	if (stage == 6) // fully clipped
-	{	
+	{
 		Sky_ProjectPoly (nump, vecs);
 		return;
 	}
@@ -753,13 +777,13 @@ void Sky_DrawFace (int axis)
 	{
 		for (j=0; j<dj; j++)
 		{
-			if (i*qi < skymins[0][axis]/2+0.5 - qi || i*qi > skymaxs[0][axis]/2+0.5 || 
+			if (i*qi < skymins[0][axis]/2+0.5 - qi || i*qi > skymaxs[0][axis]/2+0.5 ||
 				j*qj < skymins[1][axis]/2+0.5 - qj || j*qj > skymaxs[1][axis]/2+0.5)
 				continue;
-			
+
 			//if (i&1 ^ j&1) continue; //checkerboard test
 			VectorScale (vright, qi*i, temp);
-			VectorScale (vup, qj*j, temp2); 
+			VectorScale (vup, qj*j, temp2);
 			VectorAdd(temp,temp2,temp);
 			VectorAdd(verts[0],temp,p->verts[0]);
 
@@ -771,7 +795,7 @@ void Sky_DrawFace (int axis)
 
 			VectorAdd (p->verts[0],temp,p->verts[3]);
 
-			Sky_DrawFaceQuad (p);	
+			Sky_DrawFaceQuad (p);
 		}
 	}
 	Hunk_FreeToLowMark (start);
@@ -807,7 +831,7 @@ void Sky_DrawSky (void)
 
 	Sky_ProcessTextureChains ();
 	//FIXME: need to also handle sky surfs on bmodels
-	
+
 	glEnable (GL_TEXTURE_2D);
 	glColor3f (1, 1, 1);
 	Fog_EnableGFog ();

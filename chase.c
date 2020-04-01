@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -67,7 +67,7 @@ void Chase_UpdateForClient (void)
 	//place camera
 
 	//assign client angles to camera
-	
+
 	//see where camera points
 
 	//adjust client angles to point at the same place
@@ -91,7 +91,7 @@ void Chase_UpdateForDrawing (void)
 
 	// calc ideal camera location before checking for walls
 	for (i=0 ; i<3 ; i++)
-		ideal[i] = cl.viewent.origin[i] 
+		ideal[i] = cl.viewent.origin[i]
 		- forward[i]*chase_back.value
 		+ right[i]*chase_right.value;
 		//+ up[i]*chase_up.value;

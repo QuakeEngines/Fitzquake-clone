@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -33,7 +33,7 @@ int		lightmap_bytes;
 
 gltexture_t	*lightmap_textures[MAX_LIGHTMAPS]; //johnfitz -- changed to an array
 
-unsigned		blocklights[18*18*3]; //johnfitz -- lit support via lordhavoc (was 18*18)
+unsigned	blocklights[BLOCK_WIDTH*BLOCK_HEIGHT*3]; //johnfitz -- was 18*18, added lit support (*3) and loosened surface extents maximum (BLOCK_WIDTH*BLOCK_HEIGHT)
 
 typedef struct glRect_s {
 	unsigned char l,t,w,h;
@@ -68,13 +68,13 @@ texture_t *R_TextureAnimation (texture_t *base, int frame)
 	if (frame)
 		if (base->alternate_anims)
 			base = base->alternate_anims;
-	
+
 	if (!base->anim_total)
 		return base;
 
 	relative = (int)(cl.time*10) % base->anim_total;
 
-	count = 0;	
+	count = 0;
 	while (base->anim_min > relative || base->anim_max <= relative)
 	{
 		base = base->anim_next;
@@ -108,6 +108,25 @@ void DrawGLPoly (glpoly_t *p)
 }
 
 /*
+================
+DrawGLTriangleFan -- johnfitz -- like DrawGLPoly but for r_showtris
+================
+*/
+void DrawGLTriangleFan (glpoly_t *p)
+{
+	float	*v;
+	int		i;
+
+	glBegin (GL_TRIANGLE_FAN);
+	v = p->verts[0];
+	for (i=0 ; i<p->numverts ; i++, v+= VERTEXSIZE)
+	{
+		glVertex3fv (v);
+	}
+	glEnd ();
+}
+
+/*
 =============================================================
 
 	BRUSH MODELS
@@ -120,7 +139,6 @@ void DrawGLPoly (glpoly_t *p)
 R_DrawSequentialPoly -- johnfitz -- rewritten
 ================
 */
-extern gltexture_t *solidskytexture; //johnfitz -- used for drawing sky polys on bmodels the wrong way
 void R_DrawSequentialPoly (msurface_t *s)
 {
 	glpoly_t	*p;
@@ -153,7 +171,7 @@ void R_DrawSequentialPoly (msurface_t *s)
 	}
 
 // fullbright
-	if ((r_fullbright_cheatsafe || !cl.worldmodel->lightdata) && !(s->flags & SURF_DRAWTILED))
+	if ((r_fullbright_cheatsafe) && !(s->flags & SURF_DRAWTILED))
 	{
 		GL_Bind (t->gltexture);
 		DrawGLPoly (s->polys);
@@ -199,9 +217,10 @@ void R_DrawSequentialPoly (msurface_t *s)
 	}
 
 // sky poly
+//FIXME: should be handled, correctly, in gl_sky.c
 	if (s->flags & SURF_DRAWSKY)
 	{
-		//FIXME: should be handled, correctly, in gl_sky.c
+		extern gltexture_t *solidskytexture;
 		GL_Bind (solidskytexture);
 		DrawGLPoly (s->polys);
 		rs_brushpasses++;
@@ -252,7 +271,7 @@ void R_DrawSequentialPoly (msurface_t *s)
 			GL_Bind (lightmap_textures[s->lightmaptexturenum]);
 			R_RenderDynamicLightmaps (s);
 			R_UploadLightmap(s->lightmaptexturenum);
-			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT);
 			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_PREVIOUS_EXT);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_TEXTURE);
@@ -464,6 +483,88 @@ void R_DrawBrushModel (entity_t *e)
 }
 
 /*
+=================
+R_DrawBrushModel_ShowTris -- johnfitz
+=================
+*/
+void R_DrawBrushModel_ShowTris (entity_t *e)
+{
+	int			j, k;
+	vec3_t		mins, maxs;
+	int			i, numsurfaces;
+	msurface_t	*psurf;
+	float		dot;
+	mplane_t	*pplane;
+	model_t		*clmodel;
+	qboolean	rotated;
+	glpoly_t	*p;
+
+	currententity = e;
+
+	clmodel = e->model;
+
+	if (e->angles[0] || e->angles[1] || e->angles[2])
+	{
+		rotated = true;
+		for (i=0 ; i<3 ; i++)
+		{
+			mins[i] = e->origin[i] - clmodel->radius;
+			maxs[i] = e->origin[i] + clmodel->radius;
+		}
+	}
+	else
+	{
+		rotated = false;
+		VectorAdd (e->origin, clmodel->mins, mins);
+		VectorAdd (e->origin, clmodel->maxs, maxs);
+	}
+
+	if (R_CullBox (mins, maxs))
+		return;
+
+	VectorSubtract (r_refdef.vieworg, e->origin, modelorg);
+	if (rotated)
+	{
+		vec3_t	temp;
+		vec3_t	forward, right, up;
+
+		VectorCopy (modelorg, temp);
+		AngleVectors (e->angles, forward, right, up);
+		modelorg[0] = DotProduct (temp, forward);
+		modelorg[1] = -DotProduct (temp, right);
+		modelorg[2] = DotProduct (temp, up);
+	}
+
+	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
+
+    glPushMatrix ();
+	e->angles[0] = -e->angles[0];	// stupid quake bug
+	R_RotateForEntity (e);
+	e->angles[0] = -e->angles[0];	// stupid quake bug
+
+	//
+	// draw it
+	//
+
+	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
+	{
+		pplane = psurf->plane;
+		dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
+		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
+			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
+		{
+			if ((psurf->flags & SURF_DRAWTURB) && r_oldwater.value)
+				for (p = psurf->polys->next; p; p = p->next)
+					DrawGLTriangleFan (p);
+			else
+				DrawGLTriangleFan (psurf->polys);
+		}
+	}
+
+	glPopMatrix ();
+}
+
+/*
 =============================================================
 
 	LIGHTMAPS
@@ -531,7 +632,7 @@ dynamic:
 ========================
 AllocBlock -- returns a texture number and the position inside it
 ========================
-*/ 
+*/
 int AllocBlock (int w, int h, int *x, int *y)
 {
 	int		i, j;
@@ -757,11 +858,11 @@ void GL_BuildLightmaps (void)
 		lightmap_rectchange[i].h = 0;
 
 		//johnfitz -- use texture manager
-		name[8] = i/10 + '0'; 
-		name[9] = i%10 + '0'; 
+		name[8] = i/10 + '0';
+		name[9] = i%10 + '0';
 		data = lightmaps+i*BLOCK_WIDTH*BLOCK_HEIGHT*lightmap_bytes;
-		lightmap_textures[i] = TexMgr_LoadLightmap (cl.worldmodel, name, BLOCK_WIDTH, BLOCK_HEIGHT, 
-			data, TEXPREF_LINEAR | TEXPREF_NOPICMIP | TEXPREF_UNIQUE);
+		lightmap_textures[i] = TexMgr_LoadImage (cl.worldmodel, name, BLOCK_WIDTH, BLOCK_HEIGHT,
+			 SRC_LIGHTMAP, data, "", (unsigned)data, TEXPREF_LINEAR | TEXPREF_NOPICMIP | TEXPREF_OVERWRITE);
 		//johnfitz
 	}
 }
@@ -783,7 +884,7 @@ void R_AddDynamicLights (msurface_t *surf)
 	mtexinfo_t	*tex;
 	//johnfitz -- lit support via lordhavoc
 	float		cred, cgreen, cblue, brightness;
-	unsigned	*bl;	
+	unsigned	*bl;
 	//johnfitz
 
 	smax = (surf->extents[0]>>4)+1;
@@ -877,38 +978,38 @@ void R_BuildLightMap (msurface_t *surf, byte *dest, int stride)
 	size = smax*tmax;
 	lightmap = surf->samples;
 
-// set to full bright if no light data
-	if (!cl.worldmodel->lightdata)
+	if (cl.worldmodel->lightdata)
 	{
-		bl = blocklights;
-			memset (&blocklights[0], 255, size * 3 * sizeof (unsigned int)); //johnfitz -- lit support via lordhavoc
-		goto store;
-	}
+	// clear to no light
+		memset (&blocklights[0], 0, size * 3 * sizeof (unsigned int)); //johnfitz -- lit support via lordhavoc
 
-// clear to no light
-	memset (&blocklights[0], 0, size * 3 * sizeof (unsigned int)); //johnfitz -- lit support via lordhavoc
-
-// add all the lightmaps
-	if (lightmap)
-		for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
-			 maps++)
-		{
-			scale = d_lightstylevalue[surf->styles[maps]];
-			surf->cached_light[maps] = scale;	// 8.8 fraction
-			// LordHavoc: .lit support begin
-			bl = blocklights;
-			for (i=0 ; i<size ; i++)
+	// add all the lightmaps
+		if (lightmap)
+			for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
+				 maps++)
 			{
-				*bl++ += *lightmap++ * scale;
-				*bl++ += *lightmap++ * scale;
-				*bl++ += *lightmap++ * scale;
+				scale = d_lightstylevalue[surf->styles[maps]];
+				surf->cached_light[maps] = scale;	// 8.8 fraction
+				//johnfitz -- lit support via lordhavoc
+				bl = blocklights;
+				for (i=0 ; i<size ; i++)
+				{
+					*bl++ += *lightmap++ * scale;
+					*bl++ += *lightmap++ * scale;
+					*bl++ += *lightmap++ * scale;
+				}
+				//johnfitz
 			}
-			// LordHavoc: .lit support end
-		}
 
-// add all the dynamic lights
-	if (surf->dlightframe == r_framecount)
-		R_AddDynamicLights (surf);
+	// add all the dynamic lights
+		if (surf->dlightframe == r_framecount)
+			R_AddDynamicLights (surf);
+	}
+	else
+	{
+	// set to full bright if no light data
+		memset (&blocklights[0], 255, size * 3 * sizeof (unsigned int)); //johnfitz -- lit support via lordhavoc
+	}
 
 // bound, invert, and shift
 store:
@@ -929,7 +1030,7 @@ store:
 					t = *bl++ >> 8;if (t > 255) t = 255;*dest++ = t;
 					t = *bl++ >> 8;if (t > 255) t = 255;*dest++ = t;
 				}
-				else 
+				else
 				{
 					t = *bl++ >> 7;if (t > 255) t = 255;*dest++ = t;
 					t = *bl++ >> 7;if (t > 255) t = 255;*dest++ = t;
@@ -1001,14 +1102,14 @@ void R_RebuildAllLightmaps (void)
 			R_BuildLightMap (fa, base, BLOCK_WIDTH*lightmap_bytes);
 		}
 	}
-	
+
 	//for each lightmap, upload it
 	for (i=0; i<MAX_LIGHTMAPS; i++)
 	{
 		if (!allocated[i][0])
 			break;
 		GL_Bind (lightmap_textures[i]);
-		glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, BLOCK_WIDTH, BLOCK_HEIGHT, gl_lightmap_format, 
+		glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, BLOCK_WIDTH, BLOCK_HEIGHT, gl_lightmap_format,
 			GL_UNSIGNED_BYTE, lightmaps+i*BLOCK_WIDTH*BLOCK_HEIGHT*lightmap_bytes);
 	}
 }

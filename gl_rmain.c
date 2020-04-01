@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -21,8 +21,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_main.c
 
 #include "quakedef.h"
-
-entity_t	r_worldentity;
 
 qboolean	r_cache_thrash;		// compatability
 
@@ -39,7 +37,7 @@ int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
 int rs_dynamiclightmaps, rs_brushpasses, rs_aliaspasses, rs_skypasses;
 float rs_megatexels;
 
-qboolean	envmap;				// true during envmap command capture 
+qboolean	envmap;				// true during envmap command capture
 
 //
 // view origin
@@ -51,6 +49,8 @@ vec3_t	r_origin;
 
 float	r_world_matrix[16];
 float	r_base_world_matrix[16];
+
+float r_fovx, r_fovy; //johnfitz -- rendering fov may be different becuase of r_waterwarp and r_stereo
 
 //
 // screen size info
@@ -90,10 +90,13 @@ cvar_t	r_clearcolor = {"r_clearcolor","2", true};
 cvar_t	r_drawflat = {"r_drawflat","0"};
 cvar_t	r_flatlightstyles = {"r_flatlightstyles", "0"};
 cvar_t	gl_fullbrights = {"gl_fullbrights", "1", true};
-cvar_t	gl_farclip = {"gl_farclip", "8192", true};
+cvar_t	gl_farclip = {"gl_farclip", "16384", true};
 cvar_t	gl_overbright = {"gl_overbright", "1", true};
 cvar_t	gl_overbright_models = {"gl_overbright_models", "1", true};
 cvar_t	r_oldskyleaf = {"r_oldskyleaf", "0"};
+cvar_t	r_drawworld = {"r_drawworld", "1"};
+cvar_t	r_showtris = {"r_showtris", "0"};
+cvar_t	r_showbboxes = {"r_showbboxes", "0"};
 //johnfitz
 
 /*
@@ -176,15 +179,20 @@ void GL_PolygonOffset (int offset)
 	if (offset > 0)
 	{
 		glEnable (GL_POLYGON_OFFSET_FILL);
+		glEnable (GL_POLYGON_OFFSET_LINE);
 		glPolygonOffset(1, offset);
 	}
 	else if (offset < 0)
 	{
 		glEnable (GL_POLYGON_OFFSET_FILL);
+		glEnable (GL_POLYGON_OFFSET_LINE);
 		glPolygonOffset(-1, offset);
 	}
 	else
+	{
 		glDisable (GL_POLYGON_OFFSET_FILL);
+		glDisable (GL_POLYGON_OFFSET_LINE);
+	}
 }
 
 //==============================================================================
@@ -236,14 +244,17 @@ void TurnVector (vec3_t out, const vec3_t forward, const vec3_t side, float angl
 R_SetFrustum -- johnfitz -- rewritten
 ===============
 */
-void R_SetFrustum (void)
+void R_SetFrustum (float fovx, float fovy)
 {
 	int		i;
 
-	TurnVector(frustum[0].normal, vpn, vright, r_refdef.fov_x/2 - 90); //left plane
-	TurnVector(frustum[1].normal, vpn, vright, 90 - r_refdef.fov_x/2); //right plane
-	TurnVector(frustum[2].normal, vpn, vup, 90 - r_refdef.fov_y/2); //bottom plane
-	TurnVector(frustum[3].normal, vpn, vup, r_refdef.fov_y/2 - 90); //top plane
+	if (r_stereo.value)
+		fovx += 10; //silly hack so that polygons don't drop out becuase of stereo skew
+
+	TurnVector(frustum[0].normal, vpn, vright, fovx/2 - 90); //left plane
+	TurnVector(frustum[1].normal, vpn, vright, 90 - fovx/2); //right plane
+	TurnVector(frustum[2].normal, vpn, vup, 90 - fovy/2); //bottom plane
+	TurnVector(frustum[3].normal, vpn, vup, fovy/2 - 90); //top plane
 
 	for (i=0 ; i<4 ; i++)
 	{
@@ -275,36 +286,16 @@ R_SetupGL
 */
 void R_SetupGL (void)
 {
-	int		i;
-	float fovx, fovy; //johnfitz
-	int contents; //johnfitz
-
 	//johnfitz -- rewrote this section
 	glMatrixMode(GL_PROJECTION);
     glLoadIdentity ();
-	glViewport (glx + r_refdef.vrect.x, 
-				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height, 
-				r_refdef.vrect.width, 
+	glViewport (glx + r_refdef.vrect.x,
+				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
+				r_refdef.vrect.width,
 				r_refdef.vrect.height);
 	//johnfitz
 
-	//johnfitz -- warp view for underwater
-	fovx = r_refdef.fov_x;
-	fovy = r_refdef.fov_y;
-	if (r_waterwarp.value)
-	{
-		contents = Mod_PointInLeaf (r_origin, cl.worldmodel)->contents;
-		if (contents == CONTENTS_WATER || contents == CONTENTS_SLIME || contents == CONTENTS_LAVA)
-		{
-			//variance is a percentage of width, where width = 2 * tan(fov / 2)
-			//otherwise the effect is too dramatic at high FOV and too subtle at low FOV
-			//what a mess!
-			fovx = atan(tan(DEG2RAD(r_refdef.fov_x) / 2) * (0.97 + sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
-			fovy = atan(tan(DEG2RAD(r_refdef.fov_y) / 2) * (1.03 - sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
-		}
-	}
-    GL_SetFrustum (fovx, fovy);
-	//johnfitz
+    GL_SetFrustum (r_fovx, r_fovy); //johnfitz -- use r_fov* vars
 
 //	glCullFace(GL_BACK); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
 
@@ -384,7 +375,22 @@ void R_SetupView (void)
 
 	r_cache_thrash = false;
 
-	R_SetFrustum ();
+	//johnfitz -- calculate r_fovx and r_fovy here
+	r_fovx = r_refdef.fov_x;
+	r_fovy = r_refdef.fov_y;
+	if (r_waterwarp.value)
+	{
+		int contents = Mod_PointInLeaf (r_origin, cl.worldmodel)->contents;
+		if (contents == CONTENTS_WATER || contents == CONTENTS_SLIME || contents == CONTENTS_LAVA)
+		{
+			//variance is a percentage of width, where width = 2 * tan(fov / 2) otherwise the effect is too dramatic at high FOV and too subtle at low FOV.  what a mess!
+			r_fovx = atan(tan(DEG2RAD(r_refdef.fov_x) / 2) * (0.97 + sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
+			r_fovy = atan(tan(DEG2RAD(r_refdef.fov_y) / 2) * (1.03 - sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
+		}
+	}
+	//johnfitz
+
+	R_SetFrustum (r_fovx, r_fovy); //johnfitz -- use r_fov* vars
 
 	R_MarkSurfaces (); //johnfitz -- create texture chains from PVS
 
@@ -395,15 +401,16 @@ void R_SetupView (void)
 	R_Clear ();
 
 	//johnfitz -- cheat-protect some draw modes
-	r_drawflat_cheatsafe = false;
-	r_fullbright_cheatsafe = false;
-	r_lightmap_cheatsafe = false;
-	if (r_drawflat.value && cl.maxclients == 1)
-		r_drawflat_cheatsafe = true;
-	else if (r_fullbright.value && cl.maxclients == 1)
-		r_fullbright_cheatsafe = true;
-	else if (r_lightmap.value && cl.maxclients == 1)
-		r_lightmap_cheatsafe = true;
+	r_drawflat_cheatsafe = r_fullbright_cheatsafe = r_lightmap_cheatsafe = false;
+	r_drawworld_cheatsafe = true;
+	if (cl.maxclients == 1)
+	{
+		if (!r_drawworld.value) r_drawworld_cheatsafe = false;
+
+		if (r_drawflat.value) r_drawflat_cheatsafe = true;
+		else if (r_fullbright.value || !cl.worldmodel->lightdata) r_fullbright_cheatsafe = true;
+		else if (r_lightmap.value) r_lightmap_cheatsafe = true;
+	}
 	//johnfitz
 }
 
@@ -479,13 +486,172 @@ void R_DrawViewModel (void)
 	if (!currententity->model)
 		return;
 
-	if (currententity->model->type != mod_alias) //johnfitz -- this fixes a crash
+	//johnfitz -- this fixes a crash
+	if (currententity->model->type != mod_alias)
 		return;
+	//johnfitz
 
 	// hack the depth range to prevent view model from poking into walls
 	glDepthRange (0, 0.3);
 	R_DrawAliasModel (currententity);
 	glDepthRange (0, 1);
+}
+
+/*
+================
+R_EmitWireBox -- johnfitz -- draws one axis aligned bounding box
+================
+*/
+void R_EmitWireBox (vec3_t mins, vec3_t maxs)
+{
+	glBegin (GL_QUAD_STRIP);
+	glVertex3f (mins[0], mins[1], mins[2]);
+	glVertex3f (mins[0], mins[1], maxs[2]);
+	glVertex3f (maxs[0], mins[1], mins[2]);
+	glVertex3f (maxs[0], mins[1], maxs[2]);
+	glVertex3f (maxs[0], maxs[1], mins[2]);
+	glVertex3f (maxs[0], maxs[1], maxs[2]);
+	glVertex3f (mins[0], maxs[1], mins[2]);
+	glVertex3f (mins[0], maxs[1], maxs[2]);
+	glVertex3f (mins[0], mins[1], mins[2]);
+	glVertex3f (mins[0], mins[1], maxs[2]);
+	glEnd ();
+}
+
+/*
+================
+R_ShowBoundingBoxes -- johnfitz
+
+draw bounding boxes -- the server-side boxes, not the renderer cullboxes
+================
+*/
+void R_ShowBoundingBoxes (void)
+{
+	extern		edict_t *sv_player;
+	vec3_t		mins,maxs;
+	edict_t		*ed;
+	int			i;
+
+	if (!r_showbboxes.value || cl.maxclients > 1 || !r_drawentities.value || !sv.active)
+		return;
+
+	glDisable (GL_DEPTH_TEST);
+	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
+	GL_PolygonOffset (OFFSET_SHOWTRIS);
+	glDisable (GL_TEXTURE_2D);
+	glDisable (GL_CULL_FACE);
+	glColor3f (1,1,1);
+
+	for (i=0, ed=NEXT_EDICT(sv.edicts) ; i<sv.num_edicts ; i++, ed=NEXT_EDICT(ed))
+	{
+		if (ed == sv_player)
+			continue; //don't draw player's own bbox
+
+//		if (!SV_VisibleToClient (sv_player, ed, sv.worldmodel))
+//			continue; //don't draw if not in pvs
+
+#if 1
+		VectorAdd (ed->v.mins, ed->v.origin, mins);
+		VectorAdd (ed->v.maxs, ed->v.origin, maxs);
+		R_EmitWireBox (mins, maxs);
+#else
+		R_EmitWireBox (ed->v.absmin, ed->v.absmax);
+#endif
+	}
+
+	glColor3f (1,1,1);
+	glEnable (GL_TEXTURE_2D);
+	glEnable (GL_CULL_FACE);
+	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
+	GL_PolygonOffset (OFFSET_NONE);
+	glEnable (GL_DEPTH_TEST);
+
+	Sbar_Changed (); //so we don't get dots collecting on the statusbar
+}
+
+/*
+================
+R_ShowTris -- johnfitz
+================
+*/
+void R_ShowTris (void)
+{
+	extern cvar_t r_particles;
+	int i;
+
+	if (r_showtris.value < 1 || r_showtris.value > 2 || cl.maxclients > 1)
+		return;
+
+	if (r_showtris.value == 1)
+		glDisable (GL_DEPTH_TEST);
+	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
+	GL_PolygonOffset (OFFSET_SHOWTRIS);
+	glDisable (GL_TEXTURE_2D);
+	glColor3f (1,1,1);
+//	glEnable (GL_BLEND);
+//	glBlendFunc (GL_ONE, GL_ONE);
+
+	if (r_drawworld.value)
+	{
+		R_DrawTextureChains_ShowTris ();
+	}
+
+	if (r_drawentities.value)
+	{
+		for (i=0 ; i<cl_numvisedicts ; i++)
+		{
+			currententity = cl_visedicts[i];
+
+			if (currententity == &cl_entities[cl.viewentity]) // chasecam
+				currententity->angles[0] *= 0.3;
+
+			switch (currententity->model->type)
+			{
+			case mod_brush:
+				R_DrawBrushModel_ShowTris (currententity);
+				break;
+			case mod_alias:
+				R_DrawAliasModel_ShowTris (currententity);
+				break;
+			case mod_sprite:
+				R_DrawSpriteModel (currententity);
+				break;
+			default:
+				break;
+			}
+		}
+
+		// viewmodel
+		currententity = &cl.viewent;
+		if (r_drawviewmodel.value
+			&& !chase_active.value
+			&& !envmap
+			&& cl.stats[STAT_HEALTH] > 0
+			&& !(cl.items & IT_INVISIBILITY)
+			&& currententity->model
+			&& currententity->model->type == mod_alias)
+		{
+			glDepthRange (0, 0.3);
+			R_DrawAliasModel_ShowTris (currententity);
+			glDepthRange (0, 1);
+		}
+	}
+
+	if (r_particles.value)
+	{
+		R_DrawParticles_ShowTris ();
+	}
+
+//	glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+//	glDisable (GL_BLEND);
+	glColor3f (1,1,1);
+	glEnable (GL_TEXTURE_2D);
+	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
+	GL_PolygonOffset (OFFSET_NONE);
+	if (r_showtris.value == 1)
+		glEnable (GL_DEPTH_TEST);
+
+	Sbar_Changed (); //so we don't get dots collecting on the statusbar
 }
 
 /*
@@ -496,7 +662,7 @@ R_RenderScene
 void R_RenderScene (void)
 {
 	R_SetupScene (); //johnfitz -- this does everything that should be done once per call to RenderScene
-	
+
 	Fog_EnableGFog (); //johnfitz
 
 	R_DrawWorld (); // adds static entities to the list
@@ -515,6 +681,12 @@ void R_RenderScene (void)
 
 	Fog_DisableGFog (); //johnfitz
 
+	R_DrawViewModel (); //johnfitz -- moved here from R_RenderView
+
+	R_ShowTris (); //johnfitz
+
+	R_ShowBoundingBoxes (); //johnfitz
+
 #ifdef GLTEST
 	Test_Draw ();
 #endif
@@ -532,7 +704,7 @@ void R_RenderView (void)
 	if (r_norefresh.value)
 		return;
 
-	if (!r_worldentity.model || !cl.worldmodel)
+	if (!cl.worldmodel)
 		Sys_Error ("R_RenderView: NULL worldmodel");
 
 	if (r_speeds.value)
@@ -546,7 +718,7 @@ void R_RenderView (void)
 	}
 	else if (gl_finish.value)
 		glFinish ();
-	
+
 	R_SetupView (); //johnfitz -- this does everything that should be done once per frame
 
 	//johnfitz -- stereo rendering -- full of hacky goodness
@@ -564,7 +736,6 @@ void R_RenderView (void)
 		srand((int) (cl.time * 1000)); //sync random stuff between eyes
 
 		R_RenderScene ();
-		R_DrawViewModel ();
 
 		//render right eye (cyan)
 		glClear (GL_DEPTH_BUFFER_BIT);
@@ -574,7 +745,6 @@ void R_RenderView (void)
 		srand((int) (cl.time * 1000)); //sync random stuff between eyes
 
 		R_RenderScene ();
-		R_DrawViewModel ();
 
 		//restore
 		glColorMask(1, 1, 1, 1);
@@ -584,28 +754,27 @@ void R_RenderView (void)
 	else
 	{
 		R_RenderScene ();
-		R_DrawViewModel ();
 	}
 	//johnfitz
 
 	//johnfitz -- modified r_speeds output
 	time2 = Sys_FloatTime ();
 	if (r_speeds.value == 2)
-		Con_Printf ("%3i ms  %4i/%4i wpoly %4i/%4i epoly %3i lmap %4i/%4i sky %1.1f mtex\n", 
-					(int)((time2-time1)*1000), 
-					rs_brushpolys, 
-					rs_brushpasses, 
-					rs_aliaspolys, 
-					rs_aliaspasses, 
-					rs_dynamiclightmaps, 
-					rs_skypolys, 
+		Con_Printf ("%3i ms  %4i/%4i wpoly %4i/%4i epoly %3i lmap %4i/%4i sky %1.1f mtex\n",
+					(int)((time2-time1)*1000),
+					rs_brushpolys,
+					rs_brushpasses,
+					rs_aliaspolys,
+					rs_aliaspasses,
+					rs_dynamiclightmaps,
+					rs_skypolys,
 					rs_skypasses,
 					TexMgr_FrameUsage ());
 	else if (r_speeds.value)
-		Con_Printf ("%3i ms  %4i wpoly %4i epoly %3i lmap\n", 
-					(int)((time2-time1)*1000), 
-					rs_brushpolys, 
-					rs_aliaspolys, 
+		Con_Printf ("%3i ms  %4i wpoly %4i epoly %3i lmap\n",
+					(int)((time2-time1)*1000),
+					rs_brushpolys,
+					rs_aliaspolys,
 					rs_dynamiclightmaps);
 	//johnfitz
 }

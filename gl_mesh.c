@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // gl_mesh.c: triangle model functions
 
 #include "quakedef.h"
+
+
 
 /*
 =================================================================
@@ -310,45 +312,63 @@ void GL_MakeAliasModelDisplayLists (model_t *m, aliashdr_t *hdr)
 	aliasmodel = m;
 	paliashdr = hdr;	// (aliashdr_t *)Mod_Extradata (m);
 
-	//
-	// look for a cached version
-	//
-	strcpy (cache, "glquake/");
-	COM_StripExtension (m->name+strlen("progs/"), cache+strlen("glquake/"));
-	strcat (cache, ".ms2");
+//johnfitz -- generate meshes
 
-	COM_FOpenFile (cache, &f);	
-	if (f)
+#if 1 //always regenerate meshes
+
+	Con_DPrintf ("meshing %s...\n",m->name);
+	BuildTris ();
+
+#else //conditional regeneration
+
+	if (gl_alwaysmesh.value) // build it from scratch, and don't bother saving it to disk
 	{
-		fread (&numcommands, 4, 1, f);
-		fread (&numorder, 4, 1, f);
-		fread (&commands, numcommands * sizeof(commands[0]), 1, f);
-		fread (&vertexorder, numorder * sizeof(vertexorder[0]), 1, f);
-		fclose (f);
+		Con_DPrintf ("meshing %s...\n",m->name);
+		BuildTris ();
 	}
-	else
+	else // check disk cache, and rebuild it and save to disk if necessary
 	{
 		//
-		// build it from scratch
+		// look for a cached version
 		//
-		Con_Printf ("meshing %s...\n",m->name);
+		strcpy (cache, "glquake/");
+		COM_StripExtension (m->name+strlen("progs/"), cache+strlen("glquake/"));
+		strcat (cache, ".ms2");
 
-		BuildTris ();		// trifans or lists
-
-		//
-		// save out the cached version
-		//
-		sprintf (fullpath, "%s/%s", com_gamedir, cache);
-		f = fopen (fullpath, "wb");
+		COM_FOpenFile (cache, &f);
 		if (f)
 		{
-			fwrite (&numcommands, 4, 1, f);
-			fwrite (&numorder, 4, 1, f);
-			fwrite (&commands, numcommands * sizeof(commands[0]), 1, f);
-			fwrite (&vertexorder, numorder * sizeof(vertexorder[0]), 1, f);
+			fread (&numcommands, 4, 1, f);
+			fread (&numorder, 4, 1, f);
+			fread (&commands, numcommands * sizeof(commands[0]), 1, f);
+			fread (&vertexorder, numorder * sizeof(vertexorder[0]), 1, f);
 			fclose (f);
 		}
+		else
+		{
+			//
+			// build it from scratch
+			//
+			Con_Printf ("meshing %s...\n",m->name);
+			BuildTris ();
+
+			//
+			// save out the cached version
+			//
+			sprintf (fullpath, "%s/%s", com_gamedir, cache);
+			f = fopen (fullpath, "wb");
+			if (f)
+			{
+				fwrite (&numcommands, 4, 1, f);
+				fwrite (&numorder, 4, 1, f);
+				fwrite (&commands, numcommands * sizeof(commands[0]), 1, f);
+				fwrite (&vertexorder, numorder * sizeof(vertexorder[0]), 1, f);
+				fclose (f);
+			}
+		}
 	}
+#endif
+//johnfitz
 
 
 	// save the data out

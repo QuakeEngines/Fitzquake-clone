@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -23,7 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #pragma warning(disable : 4244)     // MIPS
 #pragma warning(disable : 4136)     // X86
 #pragma warning(disable : 4051)     // ALPHA
-  
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -124,7 +124,6 @@ typedef struct particle_s
 
 //====================================================
 
-extern	entity_t	r_worldentity;
 extern	qboolean	r_cache_thrash;		// compatability
 extern	vec3_t		modelorg, r_entorigin;
 extern	entity_t	*currententity;
@@ -164,7 +163,6 @@ extern	cvar_t	r_novis;
 
 extern	cvar_t	gl_clear;
 extern	cvar_t	gl_cull;
-extern	cvar_t	gl_poly;
 extern	cvar_t	gl_smoothmodels;
 extern	cvar_t	gl_affinemodels;
 extern	cvar_t	gl_polyblend;
@@ -182,6 +180,7 @@ extern	const char *gl_version;
 extern	const char *gl_extensions;
 
 void R_TranslatePlayerSkin (int playernum);
+void R_TranslateNewPlayerSkin (int playernum); //johnfitz -- this handles cases when the actual texture changes
 
 // Multitexture
 #define    TEXTURE0_SGIS				0x835E
@@ -196,9 +195,14 @@ typedef void (APIENTRY *SELECTTEXFUNC) (GLenum);
 typedef void (APIENTRY *MTEXCOORDFUNC) (GLenum, GLfloat, GLfloat);
 extern MTEXCOORDFUNC GL_MTexCoord2fFunc;
 extern SELECTTEXFUNC GL_SelectTextureFunc;
-#define	GL_TEXTURE0_ARB	0x84C0 
+#define	GL_TEXTURE0_ARB	0x84C0
 #define	GL_TEXTURE1_ARB	0x84C1
 extern GLenum TEXTURE0, TEXTURE1;
+//johnfitz
+
+//johnfitz -- anisotropic filtering
+#define	GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#define	GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
 //johnfitz
 
 //johnfitz -- polygon offset
@@ -206,6 +210,7 @@ extern GLenum TEXTURE0, TEXTURE1;
 #define OFFSET_NONE 0
 #define OFFSET_DECAL -1
 #define OFFSET_FOG -2
+#define OFFSET_SHOWTRIS -3
 void GL_PolygonOffset (int);
 //johnfitz
 
@@ -229,4 +234,4 @@ extern float rs_megatexels;
 
 int gl_warpimagesize; //johnfitz -- for water warp
 
-qboolean r_drawflat_cheatsafe, r_fullbright_cheatsafe, r_lightmap_cheatsafe; //johnfitz
+qboolean r_drawflat_cheatsafe, r_fullbright_cheatsafe, r_lightmap_cheatsafe, r_drawworld_cheatsafe; //johnfitz

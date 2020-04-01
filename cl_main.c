@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -48,10 +48,12 @@ client_static_t	cls;
 client_state_t	cl;
 // FIXME: put these on hunk?
 efrag_t			cl_efrags[MAX_EFRAGS];
-entity_t		cl_entities[MAX_EDICTS];
 entity_t		cl_static_entities[MAX_STATIC_ENTITIES];
 lightstyle_t	cl_lightstyle[MAX_LIGHTSTYLES];
 dlight_t		cl_dlights[MAX_DLIGHTS];
+
+entity_t		*cl_entities; //johnfitz -- was a static array, now on hunk
+int				cl_max_edicts; //johnfitz -- only changes when new map loads
 
 int				cl_numvisedicts;
 entity_t		*cl_visedicts[MAX_VISEDICTS];
@@ -74,13 +76,17 @@ void CL_ClearState (void)
 
 	SZ_Clear (&cls.message);
 
-// clear other arrays	
+// clear other arrays
 	memset (cl_efrags, 0, sizeof(cl_efrags));
-	memset (cl_entities, 0, sizeof(cl_entities));
 	memset (cl_dlights, 0, sizeof(cl_dlights));
 	memset (cl_lightstyle, 0, sizeof(cl_lightstyle));
 	memset (cl_temp_entities, 0, sizeof(cl_temp_entities));
 	memset (cl_beams, 0, sizeof(cl_beams));
+
+	//johnfitz -- cl_entities is now dynamically allocated
+	cl_max_edicts = CLAMP (256,(int)max_edicts.value,8192);
+	cl_entities = Hunk_AllocName (cl_max_edicts*sizeof(entity_t), "cl_entities");
+	//johnfitz
 
 //
 // allocate the efrags and chain together into a free list
@@ -159,7 +165,7 @@ void CL_EstablishConnection (char *host)
 	if (!cls.netcon)
 		Host_Error ("CL_Connect: connect failed\n");
 	Con_DPrintf ("CL_EstablishConnection: connected to %s\n", host);
-	
+
 	cls.demonum = -1;			// not in the demo loop now
 	cls.state = ca_connected;
 	cls.signon = 0;				// need all the signon messages before playing
@@ -184,25 +190,25 @@ Con_DPrintf ("CL_SignonReply: %i\n", cls.signon);
 		MSG_WriteByte (&cls.message, clc_stringcmd);
 		MSG_WriteString (&cls.message, "prespawn");
 		break;
-		
-	case 2:		
+
+	case 2:
 		MSG_WriteByte (&cls.message, clc_stringcmd);
 		MSG_WriteString (&cls.message, va("name \"%s\"\n", cl_name.string));
-	
+
 		MSG_WriteByte (&cls.message, clc_stringcmd);
 		MSG_WriteString (&cls.message, va("color %i %i\n", ((int)cl_color.value)>>4, ((int)cl_color.value)&15));
-	
+
 		MSG_WriteByte (&cls.message, clc_stringcmd);
 		sprintf (str, "spawn %s", cls.spawnparms);
 		MSG_WriteString (&cls.message, str);
 		break;
-		
-	case 3:	
+
+	case 3:
 		MSG_WriteByte (&cls.message, clc_stringcmd);
 		MSG_WriteString (&cls.message, "begin");
 		Cache_Report ();		// print remaining memory
 		break;
-		
+
 	case 4:
 		SCR_EndLoadingPlaque ();		// allow normal screen updates
 		break;
@@ -250,7 +256,7 @@ void CL_PrintEntities_f (void)
 {
 	entity_t	*ent;
 	int			i;
-	
+
 	for (i=0,ent=cl_entities ; i<cl.num_entities ; i++,ent++)
 	{
 		Con_Printf ("%3i:",i);
@@ -325,7 +331,7 @@ void CL_DecayLights (void)
 	int			i;
 	dlight_t	*dl;
 	float		time;
-	
+
 	time = cl.time - cl.oldtime;
 
 	dl = cl_dlights;
@@ -333,7 +339,7 @@ void CL_DecayLights (void)
 	{
 		if (dl->die < cl.time || !dl->radius)
 			continue;
-		
+
 		dl->radius -= time*dl->decay;
 		if (dl->radius < 0)
 			dl->radius = 0;
@@ -354,43 +360,38 @@ float	CL_LerpPoint (void)
 	float	f, frac;
 
 	f = cl.mtime[0] - cl.mtime[1];
-	
-	if (!f || cl_nolerp.value || cls.timedemo || sv.active)
+
+	if (!f || cls.timedemo || sv.active)
 	{
 		cl.time = cl.mtime[0];
 		return 1;
 	}
-		
-	if (f > 0.1)
-	{	// dropped packet, or start of demo
+
+	if (f > 0.1) // dropped packet, or start of demo
+	{
 		cl.mtime[1] = cl.mtime[0] - 0.1;
 		f = 0.1;
 	}
 	frac = (cl.time - cl.mtime[1]) / f;
-//Con_Printf ("frac: %f\n",frac);
+
 	if (frac < 0)
 	{
 		if (frac < -0.01)
-		{
-//SetPal(1); //johnfitz -- setpal was deleted
 			cl.time = cl.mtime[1];
-//				Con_Printf ("low frac\n");
-		}
 		frac = 0;
 	}
 	else if (frac > 1)
 	{
 		if (frac > 1.01)
-		{
-//SetPal(2); //johnfitz -- setpal was deleted
 			cl.time = cl.mtime[0];
-//				Con_Printf ("high frac\n");
-		}
 		frac = 1;
 	}
-//	else
-//		SetPal(0); //johnfitz -- setpal was deleted
-		
+
+	//johnfitz -- better nolerp behavior
+	if (cl_nolerp.value)
+		return 1;
+	//johnfitz
+
 	return frac;
 }
 
@@ -409,7 +410,7 @@ void CL_RelinkEntities (void)
 	vec3_t		oldorg;
 	dlight_t	*dl;
 
-// determine partial update time	
+// determine partial update time
 	frac = CL_LerpPoint ();
 
 	cl_numvisedicts = 0;
@@ -418,12 +419,12 @@ void CL_RelinkEntities (void)
 // interpolate player info
 //
 	for (i=0 ; i<3 ; i++)
-		cl.velocity[i] = cl.mvelocity[1][i] + 
+		cl.velocity[i] = cl.mvelocity[1][i] +
 			frac * (cl.mvelocity[0][i] - cl.mvelocity[1][i]);
 
 	if (cls.demoplayback)
 	{
-	// interpolate the angles	
+	// interpolate the angles
 		for (j=0 ; j<3 ; j++)
 		{
 			d = cl.mviewangles[0][j] - cl.mviewangles[1][j];
@@ -434,9 +435,9 @@ void CL_RelinkEntities (void)
 			cl.viewangles[j] = cl.mviewangles[1][j] + frac*d;
 		}
 	}
-	
+
 	bobjrotate = anglemod(100*cl.time);
-	
+
 // start on the entity after the world
 	for (i=1,ent=cl_entities+1 ; i<cl.num_entities ; i++,ent++)
 	{
@@ -484,7 +485,7 @@ void CL_RelinkEntities (void)
 					d += 360;
 				ent->angles[j] = ent->msg_angles[1][j] + f*d;
 			}
-			
+
 		}
 
 // rotate binary objects locally
@@ -493,10 +494,7 @@ void CL_RelinkEntities (void)
 
 		if (ent->effects & EF_BRIGHTFIELD)
 			R_EntityParticles (ent);
-#ifdef QUAKE2
-		if (ent->effects & EF_DARKFIELD)
-			R_DarkFieldParticles (ent);
-#endif
+
 		if (ent->effects & EF_MUZZLEFLASH)
 		{
 			vec3_t		fv, rv, uv;
@@ -505,14 +503,14 @@ void CL_RelinkEntities (void)
 			VectorCopy (ent->origin,  dl->origin);
 			dl->origin[2] += 16;
 			AngleVectors (ent->angles, fv, rv, uv);
-			 
+
 			VectorMA (dl->origin, 18, fv, dl->origin);
 			dl->radius = 200 + (rand()&31);
 			dl->minlight = 32;
 			dl->die = cl.time + 0.1;
 		}
 		if (ent->effects & EF_BRIGHTLIGHT)
-		{			
+		{
 			dl = CL_AllocDlight (i);
 			VectorCopy (ent->origin,  dl->origin);
 			dl->origin[2] += 16;
@@ -520,29 +518,12 @@ void CL_RelinkEntities (void)
 			dl->die = cl.time + 0.001;
 		}
 		if (ent->effects & EF_DIMLIGHT)
-		{			
+		{
 			dl = CL_AllocDlight (i);
 			VectorCopy (ent->origin,  dl->origin);
 			dl->radius = 200 + (rand()&31);
 			dl->die = cl.time + 0.001;
 		}
-#ifdef QUAKE2
-		if (ent->effects & EF_DARKLIGHT)
-		{			
-			dl = CL_AllocDlight (i);
-			VectorCopy (ent->origin,  dl->origin);
-			dl->radius = 200.0 + (rand()&31);
-			dl->die = cl.time + 0.001;
-			dl->dark = true;
-		}
-		if (ent->effects & EF_LIGHT)
-		{			
-			dl = CL_AllocDlight (i);
-			VectorCopy (ent->origin,  dl->origin);
-			dl->radius = 200;
-			dl->die = cl.time + 0.001;
-		}
-#endif
 
 		if (ent->model->flags & EF_GIB)
 			R_RocketTrail (oldorg, ent->origin, 2);
@@ -593,7 +574,7 @@ int CL_ReadFromServer (void)
 
 	cl.oldtime = cl.time;
 	cl.time += host_frametime;
-	
+
 	do
 	{
 		ret = CL_GetMessage ();
@@ -601,11 +582,11 @@ int CL_ReadFromServer (void)
 			Host_Error ("CL_ReadFromServer: lost server connection");
 		if (!ret)
 			break;
-		
+
 		cl.last_received_message = realtime;
 		CL_ParseServerMessage ();
 	} while (ret && cls.state == ca_connected);
-	
+
 	if (cl_shownet.value)
 		Con_Printf ("\n");
 
@@ -634,13 +615,13 @@ void CL_SendCmd (void)
 	{
 	// get basic movement from keyboard
 		CL_BaseMove (&cmd);
-	
+
 	// allow mice or other external controllers to add to the move
 		IN_Move (&cmd);
-	
+
 	// send the unreliable message
 		CL_SendMove (&cmd);
-	
+
 	}
 
 	if (cls.demoplayback)
@@ -648,11 +629,11 @@ void CL_SendCmd (void)
 		SZ_Clear (&cls.message);
 		return;
 	}
-	
+
 // send the reliable message
 	if (!cls.message.cursize)
 		return;		// no message at all
-	
+
 	if (!NET_CanSendMessage (cls.netcon))
 	{
 		Con_DPrintf ("CL_WriteToServer: can't send\n");
@@ -716,29 +697,17 @@ void CL_Viewpos_f (void)
 }
 
 /*
-=============
-CL_Mapname_f -- johnfitz
-=============
-*/
-void CL_Mapname_f (void)
-{
-	char name[MAX_QPATH];
-	COM_StripExtension (cl.worldmodel->name + 5, name);
-	Con_Printf ("\"mapname\" is \"%s\"\n", name);
-}
-
-/*
 =================
 CL_Init
 =================
 */
 void CL_Init (void)
-{	
+{
 	SZ_Alloc (&cls.message, 1024);
 
 	CL_InitInput ();
 	CL_InitTEnts ();
-	
+
 	Cvar_RegisterVariable (&cl_name, NULL);
 	Cvar_RegisterVariable (&cl_color, NULL);
 	Cvar_RegisterVariable (&cl_upspeed, NULL);
@@ -762,7 +731,7 @@ void CL_Init (void)
 
 	Cvar_RegisterVariable (&cl_maxpitch, NULL); //johnfitz -- variable pitch clamping
 	Cvar_RegisterVariable (&cl_minpitch, NULL); //johnfitz -- variable pitch clamping
-	
+
 	Cmd_AddCommand ("entities", CL_PrintEntities_f);
 	Cmd_AddCommand ("disconnect", CL_Disconnect_f);
 	Cmd_AddCommand ("record", CL_Record_f);
@@ -772,6 +741,5 @@ void CL_Init (void)
 
 	Cmd_AddCommand ("tracepos", CL_Tracepos_f); //johnfitz
 	Cmd_AddCommand ("viewpos", CL_Viewpos_f); //johnfitz
-	Cmd_AddCommand ("mapname", CL_Mapname_f); //johnfitz
 }
 

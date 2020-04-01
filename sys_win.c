@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -101,7 +101,7 @@ FILE	*sys_handles[MAX_HANDLES];
 int		findhandle (void)
 {
 	int		i;
-	
+
 	for (i=1 ; i<MAX_HANDLES ; i++)
 		if (!sys_handles[i])
 			return i;
@@ -168,14 +168,14 @@ int Sys_FileOpenWrite (char *path)
 	int		t;
 
 	t = VID_ForceUnlockedAndReturnState ();
-	
+
 	i = findhandle ();
 
 	f = fopen(path, "wb");
 	if (!f)
 		Sys_Error ("Error opening %s: %s", path,strerror(errno));
 	sys_handles[i] = f;
-	
+
 	VID_ForceLockState (t);
 
 	return i;
@@ -226,7 +226,7 @@ int	Sys_FileTime (char *path)
 	int		t, retval;
 
 	t = VID_ForceUnlockedAndReturnState ();
-	
+
 	f = fopen(path, "rb");
 
 	if (f)
@@ -238,7 +238,7 @@ int	Sys_FileTime (char *path)
 	{
 		retval = -1;
 	}
-	
+
 	VID_ForceLockState (t);
 	return retval;
 }
@@ -428,14 +428,14 @@ void Sys_Printf (char *fmt, ...)
 	va_list		argptr;
 	char		text[1024];
 	DWORD		dummy;
-	
+
 	if (isDedicated)
 	{
 		va_start (argptr,fmt);
 		vsprintf (text, fmt, argptr);
 		va_end (argptr);
 
-		WriteFile(houtput, text, strlen (text), &dummy, NULL);	
+		WriteFile(houtput, text, strlen (text), &dummy, NULL);
 	}
 }
 
@@ -588,7 +588,7 @@ char *Sys_ConsoleInput (void)
 				switch (ch)
 				{
 					case '\r':
-						WriteFile(houtput, "\r\n", 2, &dummy, NULL);	
+						WriteFile(houtput, "\r\n", 2, &dummy, NULL);
 
 						if (len)
 						{
@@ -607,7 +607,7 @@ char *Sys_ConsoleInput (void)
 						break;
 
 					case '\b':
-						WriteFile(houtput, "\b \b", 3, &dummy, NULL);	
+						WriteFile(houtput, "\b \b", 3, &dummy, NULL);
 						if (len)
 						{
 							len--;
@@ -617,7 +617,7 @@ char *Sys_ConsoleInput (void)
 					default:
 						if (ch >= ' ')
 						{
-							WriteFile(houtput, &ch, 1, &dummy, NULL);	
+							WriteFile(houtput, &ch, 1, &dummy, NULL);
 							text[len] = ch;
 							len = (len + 1) & 0xff;
 						}
@@ -739,7 +739,7 @@ int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 				*lpCmdLine = 0;
 				lpCmdLine++;
 			}
-			
+
 		}
 	}
 
@@ -827,13 +827,13 @@ int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 			if (t < com_argc)
 				hFile = (HANDLE)Q_atoi (com_argv[t+1]);
 		}
-			
+
 		if ((t = COM_CheckParm ("-HPARENT")) > 0)
 		{
 			if (t < com_argc)
 				heventParent = (HANDLE)Q_atoi (com_argv[t+1]);
 		}
-			
+
 		if ((t = COM_CheckParm ("-HCHILD")) > 0)
 		{
 			if (t < com_argc)

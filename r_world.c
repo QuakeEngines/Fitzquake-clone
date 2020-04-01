@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -22,7 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-extern cvar_t gl_fullbrights, r_drawflat, gl_overbright, r_oldwater, r_oldskyleaf; //johnfitz
+extern cvar_t gl_fullbrights, r_drawflat, gl_overbright, r_oldwater, r_oldskyleaf, r_showtris; //johnfitz
 
 #define	MAX_LIGHTMAPS	64
 extern gltexture_t *lightmap_textures[MAX_LIGHTMAPS];
@@ -30,7 +30,7 @@ extern glpoly_t	*lightmap_polys[MAX_LIGHTMAPS];
 
 byte *SV_FatPVS (vec3_t org, model_t *worldmodel);
 extern byte mod_novis[MAX_MAP_LEAFS/8];
-int vis_changed; //if true, force pvs to be refreshed 
+int vis_changed; //if true, force pvs to be refreshed
 
 //==============================================================================
 //
@@ -47,15 +47,20 @@ void R_MarkSurfaces (void)
 {
 	byte		*vis;
 	mleaf_t		*leaf;
+	mnode_t		*node;
 	msurface_t	*surf, **mark;
-	int			i, j, nearwaterportal;
+	int			i, j;
+	qboolean	nearwaterportal;
+
+	// clear lightmap chains
+	memset (lightmap_polys, 0, sizeof(lightmap_polys));
 
 	// check this leaf for water portals
-	// TODO: loop through all water surfs and use distance to cullbox
-	nearwaterportal = FALSE;
+	// TODO: loop through all water surfs and use distance to leaf cullbox
+	nearwaterportal = false;
 	for (i=0, mark = r_viewleaf->firstmarksurface; i < r_viewleaf->nummarksurfaces; i++, mark++)
 		if ((*mark)->flags & SURF_DRAWTURB)
-			nearwaterportal = TRUE;
+			nearwaterportal = true;
 
 	// choose vis data
 	if (r_novis.value || r_viewleaf->contents == CONTENTS_SOLID || r_viewleaf->contents == CONTENTS_SKY)
@@ -86,14 +91,12 @@ void R_MarkSurfaces (void)
 		if (vis[i>>3] & (1<<(i&7)))
 		{
 			if (r_oldskyleaf.value || leaf->contents != CONTENTS_SKY)
-			{
 				for (j=0, mark = leaf->firstmarksurface; j<leaf->nummarksurfaces; j++, mark++)
 					(*mark)->visframe = r_visframecount;
 
-				// add static models
-				if (leaf->efrags)
-					R_StoreEfrags (&leaf->efrags);
-			}
+			// add static models
+			if (leaf->efrags)
+				R_StoreEfrags (&leaf->efrags);
 		}
 	}
 
@@ -103,6 +106,21 @@ void R_MarkSurfaces (void)
  			cl.worldmodel->textures[i]->texturechain = NULL;
 
 	// rebuild chains
+
+#if 1
+	//iterate through surfaces one node at a time to rebuild chains
+	//need to do it this way if we want to work with tyrann's skip removal tool
+	//becuase his tool doesn't actually remove the surfaces from the bsp surfaces lump
+	//nor does it remove references to them in each leaf's marksurfaces list
+	for (i=0, node = cl.worldmodel->nodes ; i<cl.worldmodel->numnodes ; i++, node++)
+		for (j=0, surf=&cl.worldmodel->surfaces[node->firstsurface] ; j<node->numsurfaces ; j++, surf++)
+			if (surf->visframe == r_visframecount)
+			{
+				surf->texturechain = surf->texinfo->texture->texturechain;
+				surf->texinfo->texture->texturechain = surf;
+			}
+#else
+	//the old way
 	surf = &cl.worldmodel->surfaces[cl.worldmodel->firstmodelsurface];
 	for (i=0 ; i<cl.worldmodel->nummodelsurfaces ; i++, surf++)
 	{
@@ -112,6 +130,7 @@ void R_MarkSurfaces (void)
 			surf->texinfo->texture->texturechain = surf;
 		}
 	}
+#endif
 }
 
 /*
@@ -155,6 +174,9 @@ void R_CullSurfaces (void)
 	msurface_t *s;
 	int i;
 
+	if (!r_drawworld_cheatsafe)
+		return;
+
 	s = &cl.worldmodel->surfaces[cl.worldmodel->firstmodelsurface];
 	for (i=0 ; i<cl.worldmodel->nummodelsurfaces ; i++, s++)
 	{
@@ -162,7 +184,7 @@ void R_CullSurfaces (void)
 		{
 			if (R_CullBox(s->mins, s->maxs) || R_BackFaceCull (s))
 				s->culled = true;
-			else 
+			else
 			{
 				s->culled = false;
 				rs_brushpolys++; //count wpolys here
@@ -183,8 +205,6 @@ void R_BuildLightmapChains (void)
 	msurface_t *s;
 	int i;
 
-	memset (lightmap_polys, 0, sizeof(lightmap_polys));
-
 	s = &cl.worldmodel->surfaces[cl.worldmodel->firstmodelsurface];
 	for (i=0 ; i<cl.worldmodel->nummodelsurfaces ; i++, s++)
 		if (s->visframe == r_visframecount && !R_CullBox(s->mins, s->maxs) && !R_BackFaceCull (s))
@@ -199,6 +219,44 @@ void R_BuildLightmapChains (void)
 
 /*
 ================
+R_DrawTextureChains_ShowTris -- johnfitz
+================
+*/
+void R_DrawTextureChains_ShowTris (void)
+{
+	int			i;
+	msurface_t	*s;
+	texture_t	*t;
+	glpoly_t	*p;
+
+	for (i=0 ; i<cl.worldmodel->numtextures ; i++)
+	{
+		t = cl.worldmodel->textures[i];
+		if (!t)
+			continue;
+
+		if (r_oldwater.value && t->texturechain && (t->texturechain->flags & SURF_DRAWTURB))
+		{
+			for (s = t->texturechain; s; s = s->texturechain)
+				if (!s->culled)
+					for (p = s->polys->next; p; p = p->next)
+					{
+						DrawGLTriangleFan (p);
+					}
+		}
+		else
+		{
+			for (s = t->texturechain; s; s = s->texturechain)
+				if (!s->culled)
+				{
+					DrawGLTriangleFan (s->polys);
+				}
+		}
+	}
+}
+
+/*
+================
 R_DrawTextureChains_Drawflat -- johnfitz
 ================
 */
@@ -209,11 +267,10 @@ void R_DrawTextureChains_Drawflat (void)
 	texture_t	*t;
 	glpoly_t	*p;
 
-	glDisable (GL_TEXTURE_2D);
 	for (i=0 ; i<cl.worldmodel->numtextures ; i++)
 	{
 		t = cl.worldmodel->textures[i];
-		if (!t) 
+		if (!t)
 			continue;
 
 		if (r_oldwater.value && t->texturechain && (t->texturechain->flags & SURF_DRAWTURB))
@@ -241,7 +298,6 @@ void R_DrawTextureChains_Drawflat (void)
 		}
 	}
 	glColor3f (1,1,1);
-	glEnable (GL_TEXTURE_2D);
 	srand ((int) (cl.time * 1000));
 }
 
@@ -255,13 +311,14 @@ void R_DrawTextureChains_Glow (void)
 	int			i;
 	msurface_t	*s;
 	texture_t	*t;
+	gltexture_t	*glt;
 	qboolean	bound;
 
 	for (i=0 ; i<cl.worldmodel->numtextures ; i++)
 	{
 		t = cl.worldmodel->textures[i];
 
-		if (!t || !t->texturechain || !t->fullbright)
+		if (!t || !t->texturechain || !(glt = R_TextureAnimation(t,0)->fullbright))
 			continue;
 
 		bound = false;
@@ -271,7 +328,7 @@ void R_DrawTextureChains_Glow (void)
 			{
 				if (!bound) //only bind once we are sure we need this texture
 				{
-					GL_Bind ((R_TextureAnimation(t,0))->fullbright);
+					GL_Bind (glt);
 					bound = true;
 				}
 				DrawGLPoly (s->polys);
@@ -415,7 +472,7 @@ void R_DrawTextureChains_Water (void)
 	float		*v;
 	qboolean	bound;
 
-	if (r_drawflat_cheatsafe || r_lightmap_cheatsafe)
+	if (r_drawflat_cheatsafe || r_lightmap_cheatsafe || !r_drawworld_cheatsafe)
 		return;
 
 	if (r_wateralpha.value < 1.0)
@@ -550,19 +607,24 @@ R_DrawWorld -- johnfitz -- rewritten
 */
 void R_DrawWorld (void)
 {
+	if (!r_drawworld_cheatsafe)
+		return;
+
 	if (r_drawflat_cheatsafe)
 	{
+		glDisable (GL_TEXTURE_2D);
 		R_DrawTextureChains_Drawflat ();
+		glEnable (GL_TEXTURE_2D);
 		return;
 	}
 
-	if (r_fullbright_cheatsafe || !cl.worldmodel->lightdata)
+	if (r_fullbright_cheatsafe)
 	{
 		Sky_DrawSky ();
 		R_DrawTextureChains_TextureOnly ();
 		return;
 	}
-	
+
 	if (r_lightmap_cheatsafe)
 	{
 		R_BuildLightmapChains ();
@@ -590,7 +652,7 @@ void R_DrawWorld (void)
 		if (gl_texture_env_combine && gl_mtexable)
 		{
 			GL_EnableMultitexture ();
-			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT);
 			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_PREVIOUS_EXT);
 			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_TEXTURE);

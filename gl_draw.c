@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -30,8 +30,59 @@ cvar_t		scr_conalpha = {"scr_conalpha", "1"}; //johnfitz
 qpic_t		*draw_disc;
 qpic_t		*draw_backtile;
 
-gltexture_t *translate_texture, *char_texture; //johnfitz
-gltexture_t *pic_stipple_texture, *pic_ins_texture, *pic_ovr_texture, *pic_crosshair_texture; //johnfitz
+gltexture_t *char_texture; //johnfitz
+qpic_t		*pic_ovr, *pic_ins; //johnfitz -- new cursor handling
+
+//johnfitz -- new pics
+byte pic_ovr_data[8][8] =
+{
+	{255,255,255,255,255,255,255,255},
+	{255, 15, 15, 15, 15, 15, 15,255},
+	{255, 15, 15, 15, 15, 15, 15,  2},
+	{255, 15, 15, 15, 15, 15, 15,  2},
+	{255, 15, 15, 15, 15, 15, 15,  2},
+	{255, 15, 15, 15, 15, 15, 15,  2},
+	{255, 15, 15, 15, 15, 15, 15,  2},
+	{255,255,  2,  2,  2,  2,  2,  2},
+};
+
+byte pic_ins_data[9][8] =
+{
+	{ 15, 15,255,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{ 15, 15,  2,255,255,255,255,255},
+	{255,  2,  2,255,255,255,255,255},
+};
+
+byte pic_stipple_data[8][8] =
+{
+	{255,  0,  0,  0,255,  0,  0,  0},
+	{  0,  0,255,  0,  0,  0,255,  0},
+	{255,  0,  0,  0,255,  0,  0,  0},
+	{  0,  0,255,  0,  0,  0,255,  0},
+	{255,  0,  0,  0,255,  0,  0,  0},
+	{  0,  0,255,  0,  0,  0,255,  0},
+	{255,  0,  0,  0,255,  0,  0,  0},
+	{  0,  0,255,  0,  0,  0,255,  0},
+};
+
+byte pic_crosshair_data[8][8] =
+{
+	{255,255,255,255,255,255,255,255},
+	{255,255,255,  8,  9,255,255,255},
+	{255,255,255,  6,  8,  2,255,255},
+	{255,  6,  8,  8,  6,  8,  8,255},
+	{255,255,  2,  8,  8,  2,  2,  2},
+	{255,255,255,  7,  8,  2,255,255},
+	{255,255,255,255,  2,  2,255,255},
+	{255,255,255,255,255,255,255,255},
+};
+//johnfitz
 
 typedef struct
 {
@@ -79,7 +130,7 @@ Scrap_AllocBlock
 
 returns an index into scrap_texnums[] and the position inside it
 ================
-*/ 
+*/
 int Scrap_AllocBlock (int w, int h, int *x, int *y)
 {
 	int		i, j;
@@ -124,19 +175,19 @@ int Scrap_AllocBlock (int w, int h, int *x, int *y)
 
 /*
 ================
-Scrap_Upload -- johnfitz -- now uses TexMgr_LoadImage8
+Scrap_Upload -- johnfitz -- now uses TexMgr
 ================
 */
 void Scrap_Upload (void)
 {
 	char name[8];
 	int	i;
-	
+
 	for (i=0; i<MAX_SCRAPS; i++)
 	{
 		sprintf (name, "scrap%i", i);
-		scrap_textures[i] = TexMgr_LoadImage8 (NULL, name, BLOCK_WIDTH, BLOCK_HEIGHT, scrap_texels[i], 
-			TEXPREF_ALPHA | TEXPREF_UNIQUE | TEXPREF_NOPICMIP);
+		scrap_textures[i] = TexMgr_LoadImage (NULL, name, BLOCK_WIDTH, BLOCK_HEIGHT, SRC_INDEXED, scrap_texels[i],
+			"", (unsigned)scrap_texels[i], TEXPREF_ALPHA | TEXPREF_OVERWRITE | TEXPREF_NOPICMIP);
 	}
 
 	scrap_dirty = false;
@@ -151,6 +202,7 @@ qpic_t *Draw_PicFromWad (char *name)
 {
 	qpic_t	*p;
 	glpic_t	*gl;
+	unsigned offset; //johnfitz
 
 	p = W_GetLumpName (name);
 	gl = (glpic_t *)p->data;
@@ -177,7 +229,13 @@ qpic_t *Draw_PicFromWad (char *name)
 	}
 	else
 	{
-		gl->gltexture = TexMgr_LoadImage8 (NULL, name, p->width, p->height, p->data, TEXPREF_ALPHA | TEXPREF_PAD | TEXPREF_NOPICMIP); //johnfitz -- TexMgr_LoadImage8
+		char texturename[64]; //johnfitz
+		sprintf (texturename, "%s:%s", WADFILENAME, name); //johnfitz
+
+		offset = (unsigned)p - (unsigned)wad_base + sizeof(int)*2; //johnfitz
+
+		gl->gltexture = TexMgr_LoadImage (NULL, texturename, p->width, p->height, SRC_INDEXED, p->data, WADFILENAME,
+										  offset, TEXPREF_ALPHA | TEXPREF_PAD | TEXPREF_NOPICMIP); //johnfitz -- TexMgr
 		gl->sl = 0;
 		gl->sh = (float)p->width/(float)TexMgr_PadConditional(p->width); //johnfitz
 		gl->tl = 0;
@@ -211,7 +269,7 @@ qpic_t	*Draw_CachePic (char *path)
 //
 // load the pic from disk
 //
-	dat = (qpic_t *)COM_LoadTempFile (path);	
+	dat = (qpic_t *)COM_LoadTempFile (path);
 	if (!dat)
 		Sys_Error ("Draw_CachePic: failed to load %s", path);
 	SwapPic (dat);
@@ -226,7 +284,8 @@ qpic_t	*Draw_CachePic (char *path)
 	pic->pic.height = dat->height;
 
 	gl = (glpic_t *)pic->pic.data;
-	gl->gltexture = TexMgr_LoadImage8 (NULL, path, dat->width, dat->height, dat->data, TEXPREF_ALPHA | TEXPREF_PAD | TEXPREF_NOPICMIP); //johnfitz -- TexMgr_LoadImage8
+	gl->gltexture = TexMgr_LoadImage (NULL, path, dat->width, dat->height, SRC_INDEXED, dat->data, path,
+									  sizeof(int)*2, TEXPREF_ALPHA | TEXPREF_PAD | TEXPREF_NOPICMIP); //johnfitz -- TexMgr
 	gl->sl = 0;
 	gl->sh = (float)dat->width/(float)TexMgr_PadConditional(dat->width); //johnfitz
 	gl->tl = 0;
@@ -236,24 +295,35 @@ qpic_t	*Draw_CachePic (char *path)
 }
 
 /*
-===============
-Draw_LoadConchars -- johnfitz -- load specially becuase the transparent color is black instead of pink
-===============
+================
+Draw_MakePic -- johnfitz -- generate pics from internal data
+================
 */
-void Draw_LoadConchars (void)
+qpic_t *Draw_MakePic (char *name, int width, int height, byte *data)
 {
-	int			i;
-	byte		*data;
+	int flags = TEXPREF_NEAREST | TEXPREF_ALPHA | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_PAD;
+	qpic_t		*pic;
+	glpic_t		*gl;
 
-	data = W_GetLumpName ("conchars");
+	pic = Hunk_Alloc (sizeof(qpic_t) - 4 + sizeof (glpic_t));
+	pic->width = width;
+	pic->height = height;
 
-	//correct transparent color
-	for (i = 0; i < 128*128; i++)
-		if (data[i] == 0)
-			data[i] = 255;
+	gl = (glpic_t *)pic->data;
+	gl->gltexture = TexMgr_LoadImage (NULL, name, width, height, SRC_INDEXED, data, "", (unsigned)data, flags);
+	gl->sl = 0;
+	gl->sh = (float)width/(float)TexMgr_PadConditional(width);
+	gl->tl = 0;
+	gl->th = (float)height/(float)TexMgr_PadConditional(height);
 
-	char_texture = TexMgr_LoadImage8 (NULL, "conchars", 128, 128, data, TEXPREF_ALPHA | TEXPREF_NEAREST | TEXPREF_NOPICMIP);
+	return pic;
 }
+
+//==============================================================================
+//
+//  INIT
+//
+//==============================================================================
 
 /*
 ===============
@@ -262,83 +332,16 @@ Draw_LoadPics -- johnfitz
 */
 void Draw_LoadPics (void)
 {
-	Draw_LoadConchars ();
+	byte		*data;
+	unsigned	offset;
+
+	data = W_GetLumpName ("conchars");
+	offset = (unsigned)data - (unsigned)wad_base;
+	char_texture = TexMgr_LoadImage (NULL, WADFILENAME":conchars", 128, 128, SRC_INDEXED, data,
+		WADFILENAME, offset, TEXPREF_ALPHA | TEXPREF_NEAREST | TEXPREF_NOPICMIP | TEXPREF_CONCHARS);
+
 	draw_disc = Draw_PicFromWad ("disc");
 	draw_backtile = Draw_PicFromWad ("backtile");
-}
-
-//johnfitz -- new pics
-byte pic_stipple[8][8] =
-{
-	{255,  0,  0,  0,255,  0,  0,  0},
-	{  0,  0,255,  0,  0,  0,255,  0},
-	{255,  0,  0,  0,255,  0,  0,  0},
-	{  0,  0,255,  0,  0,  0,255,  0},
-	{255,  0,  0,  0,255,  0,  0,  0},
-	{  0,  0,255,  0,  0,  0,255,  0},
-	{255,  0,  0,  0,255,  0,  0,  0},
-	{  0,  0,255,  0,  0,  0,255,  0},
-};
-
-byte pic_ovr[8][8] =
-{	
-	{255,255,255,255,255,255,255,255},
-	{255,  7,  7,  7,  7,  7,  7,255},
-	{255,  8,  8,  8,  8,  8,  8,  2},
-	{255,  9,  9,  9,  9,  9,  9,  2},
-	{255, 10, 10, 10, 10, 10, 10,  2},
-	{255, 11, 11, 11, 11, 11, 11,  2},
-	{255, 12, 12, 12, 12, 12, 12,  2},
-	{255,255,  2,  2,  2,  2,  2,  2},
-};
-
-byte pic_ins[8][8] =
-{	
-	{255,255,255,255,255,255,255,255},
-	{255,255,255,255,255,255,255,255},
-	{255,255,255,255,255,255,255,255},
-	{255,255,255,255,255,255,255,255},
-	{255,255,255,255,255,255,255,255},
-	{255,255,255,255,255,255,255,255},
-	{255, 12, 12, 12, 12, 12, 12,255},
-	{255,255,  2,  2,  2,  2,  2,  2},
-};
-
-byte pic_crosshair[8][8] =
-{	
-	{255,255,255,255,255,255,255,255},
-	{255,255,255,  8,  9,255,255,255},
-	{255,255,255,  6,  8,  2,255,255},
-	{255,  6,  8,  8,  6,  8,  8,255},
-	{255,255,  2,  8,  8,  2,  2,  2},
-	{255,255,255,  7,  8,  2,255,255},
-	{255,255,255,255,  2,  2,255,255},
-	{255,255,255,255,255,255,255,255},
-};
-//johnfitz
-
-/*
-===============
-Draw_InitPics -- johnfitz -- init internal pics
-===============
-*/
-void Draw_InitPics (void)
-{
-	int flags = TEXPREF_NEAREST | TEXPREF_ALPHA | TEXPREF_PERSIST | TEXPREF_NOPICMIP;
-
-	// stipple texture
-	pic_stipple_texture = TexMgr_LoadImage8 (NULL, "pic_stipple_texture", 8, 8, &pic_stipple[0][0], flags);
-
-	// text insert cursor
-	pic_ins_texture = TexMgr_LoadImage8 (NULL, "pic_ins_texture", 8, 8, &pic_ins[0][0], flags);
-
-	// text overwrite cursor
-	pic_ovr_texture = TexMgr_LoadImage8 (NULL, "pic_ovr_texture", 8, 8, &pic_ovr[0][0], flags);
-
-	// crosshair
-	pic_crosshair_texture = TexMgr_LoadImage8 (NULL, "pic_crosshair_texture", 8, 8, &pic_crosshair[0][0], flags);
-
-	// mouse cursor
 }
 
 /*
@@ -358,9 +361,8 @@ void Draw_NewGame (void)
 	Scrap_Upload (); //creates 2 empty gltextures
 
 	// reload wad pics
-	W_LoadWadFile ("gfx.wad");
+	W_LoadWadFile (); //johnfitz -- filename is now hard-coded for honesty
 	Draw_LoadPics ();
-//	Draw_InitPics ();
 	SCR_LoadPics ();
 	Sbar_LoadPics ();
 
@@ -378,7 +380,7 @@ Draw_Init -- johnfitz -- rewritten
 void Draw_Init (void)
 {
 	Cvar_RegisterVariable (&scr_conalpha, NULL);
-	
+
 	// clear scrap and allocate gltextures
 	memset(&scrap_allocated, 0, sizeof(scrap_allocated));
 	memset(&scrap_texels, 255, sizeof(scrap_texels));
@@ -387,8 +389,9 @@ void Draw_Init (void)
 	// load game pics
 	Draw_LoadPics ();
 
-	// init internal pics
-//	Draw_InitPics ();
+	// create internal pics
+	pic_ins = Draw_MakePic ("ins", 8, 9, &pic_ins_data[0][0]);
+	pic_ovr = Draw_MakePic ("ovr", 8, 8, &pic_ovr_data[0][0]);
 }
 
 //==============================================================================
@@ -403,7 +406,7 @@ Draw_CharacterQuad -- johnfitz -- seperate function to spit out verts
 ================
 */
 void Draw_CharacterQuad (int x, int y, char num)
-{	
+{
 	int				row, col;
 	float			frow, fcol, size;
 
@@ -430,11 +433,14 @@ Draw_Character -- johnfitz -- modified to call Draw_CharacterQuad
 ================
 */
 void Draw_Character (int x, int y, int num)
-{	
+{
 	if (y <= -8)
 		return;			// totally off screen
-	
+
 	num &= 255;
+
+	if (num == 32)
+		return; //don't waste verts on spaces
 
 	GL_Bind (char_texture);
 	glBegin (GL_QUADS);
@@ -459,7 +465,8 @@ void Draw_String (int x, int y, char *str)
 
 	while (*str)
 	{
-		Draw_CharacterQuad (x, y, *str);
+		if (*str != 32) //don't waste verts on spaces
+			Draw_CharacterQuad (x, y, *str);
 		str++;
 		x += 8;
 	}
@@ -475,7 +482,7 @@ Draw_Pic -- johnfitz -- modified
 void Draw_Pic (int x, int y, qpic_t *pic)
 {
 	glpic_t			*gl;
-	
+
 	if (scrap_dirty)
 		Scrap_Upload ();
 	gl = (glpic_t *)pic->data;
@@ -494,51 +501,25 @@ void Draw_Pic (int x, int y, qpic_t *pic)
 
 /*
 =============
-Draw_TransPicTranslate
+Draw_TransPicTranslate -- johnfitz -- rewritten to use texmgr to do translation
 
 Only used for the player color selection menu
 =============
 */
-void Draw_TransPicTranslate (int x, int y, qpic_t *pic, byte *translation)
+void Draw_TransPicTranslate (int x, int y, qpic_t *pic, int top, int bottom)
 {
-	int				v, u, c;
-	unsigned		trans[64*64], *dest;
-	byte			*src;
-	int				p;
+	static int oldtop = -2;
+	static int oldbottom = -2;
+	gltexture_t *glt;
 
-	c = pic->width * pic->height;
-	
-	//FIXME: shouldn't need to upload this every frame
-
-	dest = trans;
-	for (v=0 ; v<64 ; v++, dest += 64)
+	if (top != oldtop || bottom != oldbottom)
 	{
-		src = &menuplyr_pixels[ ((v*pic->height)>>6) *pic->width];
-		for (u=0 ; u<64 ; u++)
-		{
-			p = src[(u*pic->width)>>6];
-			if (p == 255)
-				dest[u] = 0; //johnfitz -- black edges are better than pink
-			else
-				dest[u] = d_8to24table[translation[p]];
-		}
+		oldtop = top;
+		oldbottom = bottom;
+		glt = ((glpic_t *)pic->data)->gltexture;
+		TexMgr_ReloadImage (glt, top, bottom);
 	}
-
-	translate_texture = TexMgr_LoadImage32 (NULL, "translate_texture", 64, 64, trans, TEXPREF_ALPHA); //johnfitz
-	GL_Bind (translate_texture);
-
-	glColor4f (1,1,1,1);
-	glBegin (GL_QUADS);
-	glTexCoord2f (0, 0);
-	glVertex2f (x, y);
-	glTexCoord2f (1, 0);
-	glVertex2f (x+pic->width, y);
-	glTexCoord2f (1, 1);
-	glVertex2f (x+pic->width, y+pic->height);
-	glTexCoord2f (0, 1);
-	glVertex2f (x, y+pic->height);
-	glEnd ();
-	//johnfitz
+	Draw_Pic (x, y, pic);
 }
 
 /*
@@ -674,16 +655,31 @@ Call before beginning any disc IO.
 */
 void Draw_BeginDisc (void)
 {
-	int previous_canvas = currentcanvas; //johnfitz
+	int viewport[4]; //johnfitz
 
 	if (!draw_disc)
 		return;
 
-	GL_SetCanvas (CANVAS_DEFAULT); //johnfitz
+	//johnfitz -- canvas and matrix stuff
+	glGetIntegerv (GL_VIEWPORT, viewport);
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix ();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix ();
+	GL_SetCanvas (CANVAS_DEFAULT);
+	//johnfitz
+
 	glDrawBuffer  (GL_FRONT);
 	Draw_Pic (glwidth - 24, 0, draw_disc);
 	glDrawBuffer  (GL_BACK);
-	GL_SetCanvas (previous_canvas); //johnfitz
+
+	//johnfitz -- restore everything so that 3d rendering isn't fucked up
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix ();
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix ();
+	glViewport (viewport[0], viewport[1], viewport[2], viewport[3]);
+	//johnfitz
 }
 
 /*
@@ -698,7 +694,7 @@ void GL_SetCanvas (int canvastype)
 
 	if (canvastype == currentcanvas)
 		return;
-	
+
 	currentcanvas = canvastype;
 
 	glMatrixMode(GL_PROJECTION);

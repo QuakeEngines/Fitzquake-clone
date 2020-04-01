@@ -1,6 +1,6 @@
 /*
 Copyright (C) 1996-2001 Id Software, Inc.
-Copyright (C) 2002-2003 John Fitzgibbons and others
+Copyright (C) 2002-2005 John Fitzgibbons and others
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -9,7 +9,7 @@ of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 See the GNU General Public License for more details.
 
@@ -36,6 +36,9 @@ extern cvar_t r_waterquality;
 extern cvar_t r_oldwater;
 extern cvar_t r_waterwarp;
 extern cvar_t r_oldskyleaf;
+extern cvar_t r_drawworld;
+extern cvar_t r_showtris;
+extern cvar_t r_showbboxes;
 //johnfitz
 
 extern float load_subdivide_size; //johnfitz -- remember what subdivide_size value was when this map was loaded
@@ -118,39 +121,39 @@ void R_Envmap_f (void)
 	GL_BeginRendering (&glx, &gly, &glwidth, &glheight);
 	R_RenderView ();
 	glReadPixels (0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-	COM_WriteFile ("env0.rgb", buffer, sizeof(buffer));		
+	COM_WriteFile ("env0.rgb", buffer, sizeof(buffer));
 
 	r_refdef.viewangles[1] = 90;
 	GL_BeginRendering (&glx, &gly, &glwidth, &glheight);
 	R_RenderView ();
 	glReadPixels (0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-	COM_WriteFile ("env1.rgb", buffer, sizeof(buffer));		
+	COM_WriteFile ("env1.rgb", buffer, sizeof(buffer));
 
 	r_refdef.viewangles[1] = 180;
 	GL_BeginRendering (&glx, &gly, &glwidth, &glheight);
 	R_RenderView ();
 	glReadPixels (0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-	COM_WriteFile ("env2.rgb", buffer, sizeof(buffer));		
+	COM_WriteFile ("env2.rgb", buffer, sizeof(buffer));
 
 	r_refdef.viewangles[1] = 270;
 	GL_BeginRendering (&glx, &gly, &glwidth, &glheight);
 	R_RenderView ();
 	glReadPixels (0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-	COM_WriteFile ("env3.rgb", buffer, sizeof(buffer));		
+	COM_WriteFile ("env3.rgb", buffer, sizeof(buffer));
 
 	r_refdef.viewangles[0] = -90;
 	r_refdef.viewangles[1] = 0;
 	GL_BeginRendering (&glx, &gly, &glwidth, &glheight);
 	R_RenderView ();
 	glReadPixels (0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-	COM_WriteFile ("env4.rgb", buffer, sizeof(buffer));		
+	COM_WriteFile ("env4.rgb", buffer, sizeof(buffer));
 
 	r_refdef.viewangles[0] = 90;
 	r_refdef.viewangles[1] = 0;
 	GL_BeginRendering (&glx, &gly, &glwidth, &glheight);
 	R_RenderView ();
 	glReadPixels (0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-	COM_WriteFile ("env5.rgb", buffer, sizeof(buffer));		
+	COM_WriteFile ("env5.rgb", buffer, sizeof(buffer));
 
 	envmap = false;
 	glDrawBuffer  (GL_BACK);
@@ -164,13 +167,13 @@ R_Init
 ===============
 */
 void R_Init (void)
-{	
+{
 	extern byte *hunk_base;
 	extern cvar_t gl_finish;
 
-	Cmd_AddCommand ("timerefresh", R_TimeRefresh_f);	
-	Cmd_AddCommand ("envmap", R_Envmap_f);	
-	Cmd_AddCommand ("pointfile", R_ReadPointFile_f);	
+	Cmd_AddCommand ("timerefresh", R_TimeRefresh_f);
+	Cmd_AddCommand ("envmap", R_Envmap_f);
+	Cmd_AddCommand ("pointfile", R_ReadPointFile_f);
 
 	Cvar_RegisterVariable (&r_norefresh, NULL);
 	Cvar_RegisterVariable (&r_lightmap, NULL);
@@ -202,11 +205,14 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_waterwarp, NULL);
 	Cvar_RegisterVariable (&r_drawflat, NULL);
 	Cvar_RegisterVariable (&r_flatlightstyles, NULL);
+	Cvar_RegisterVariable (&r_oldskyleaf, R_OldSkyLeaf_f);
+	Cvar_RegisterVariable (&r_drawworld, NULL);
+	Cvar_RegisterVariable (&r_showtris, NULL);
+	Cvar_RegisterVariable (&r_showbboxes, NULL);
 	Cvar_RegisterVariable (&gl_farclip, NULL);
 	Cvar_RegisterVariable (&gl_fullbrights, NULL);
 	Cvar_RegisterVariable (&gl_overbright, GL_Overbright_f);
 	Cvar_RegisterVariable (&gl_overbright_models, NULL);
-	Cvar_RegisterVariable (&r_oldskyleaf, R_OldSkyLeaf_f);
 	//johnfitz
 
 	Cvar_RegisterVariable (&gl_subdivide_size, NULL); //johnfitz -- moved here from gl_model.c
@@ -224,92 +230,56 @@ void R_Init (void)
 
 /*
 ===============
-R_TranslatePlayerSkin -- johnfitz -- much revision. still a fucking mess.
-
-Translates a skin texture by the per-player color lookup
+R_TranslatePlayerSkin -- johnfitz -- rewritten.  also, only handles new colors, not new skins
 ===============
 */
 void R_TranslatePlayerSkin (int playernum)
 {
-	int		top, bottom;
-	byte	translate[256];
-	unsigned	translate32[256];
-	int		i, j, s;
-	model_t	*model;
-	aliashdr_t *paliashdr;
-	byte	*original;
-	unsigned	pixels[512*256], *out;
-	unsigned	scaled_width, scaled_height;
-	int			inwidth, inheight;
-	byte		*inrow;
-	unsigned	frac, fracstep;
-	extern	byte		**player_8bit_texels_tbl;
+	int			top, bottom;
 
-	top = cl.scores[playernum].colors & 0xf0;
-	bottom = (cl.scores[playernum].colors &15)<<4;
+	top = (cl.scores[playernum].colors & 0xf0)>>4;
+	bottom = cl.scores[playernum].colors &15;
 
-	for (i=0 ; i<256 ; i++)
-		translate[i] = i;
+	//FIXME: if gl_nocolors is on, then turned off, the textures may be out of sync with the scoreboard colors.
+	if (!gl_nocolors.value)
+		if (playertextures[playernum])
+			TexMgr_ReloadImage (playertextures[playernum], top, bottom);
+}
 
-	for (i=0 ; i<16 ; i++)
-	{
-		if (top < 128)	// the artists made some backwards ranges.  sigh.
-			translate[TOP_RANGE+i] = top+i;
-		else
-			translate[TOP_RANGE+i] = top+15-i;
-				
-		if (bottom < 128)
-			translate[BOTTOM_RANGE+i] = bottom+i;
-		else
-			translate[BOTTOM_RANGE+i] = bottom+15-i;
-	}
+/*
+===============
+R_TranslateNewPlayerSkin -- johnfitz -- split off of TranslatePlayerSkin -- this is called when
+the skin or model actually changes, instead of just new colors
+===============
+*/
+void R_TranslateNewPlayerSkin (int playernum)
+{
+	char		name[64];
+	byte		*pixels;
+	aliashdr_t	*paliashdr;
 
-	//
-	// locate the original skin pixels
-	//
+//get correct texture pixels
 	currententity = &cl_entities[1+playernum];
-	model = currententity->model;
-	if (!model)
-		return;		// player doesn't have a model yet
-	if (model->type != mod_alias)
-		return; // only translate skins on alias models
 
-	paliashdr = (aliashdr_t *)Mod_Extradata (model);
-	s = paliashdr->skinwidth * paliashdr->skinheight;
+	if (!currententity->model || currententity->model->type != mod_alias)
+		return;
+
+	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
+
+	//TODO: move these tests to the place where skinnum gets received from the server
 	if (currententity->skinnum < 0 || currententity->skinnum >= paliashdr->numskins) {
 		Con_Printf("(%d): Invalid player skin #%d\n", playernum, currententity->skinnum);
-		original = (byte *)paliashdr + paliashdr->texels[0];
+		pixels = (byte *)paliashdr + paliashdr->texels[0];
 	} else
-		original = (byte *)paliashdr + paliashdr->texels[currententity->skinnum];
-	if (s & 3)
-		Sys_Error ("R_TranslateSkin: s&3");
+		pixels = (byte *)paliashdr + paliashdr->texels[currententity->skinnum];
 
-	// because this happens during gameplay, do it fast
-	// instead of sending it through gl_upload 8
+//upload new image
+	sprintf(name, "player_%i", playernum);
+	playertextures[playernum] = TexMgr_LoadImage (NULL, name, paliashdr->skinwidth, paliashdr->skinheight,
+		SRC_INDEXED, pixels, "", (unsigned)pixels, TEXPREF_PAD | TEXPREF_OVERWRITE);
 
-	inwidth = TexMgr_Pad(paliashdr->skinwidth); //johnfitz -- texels already padded in mod_loadallskins
-	inheight = TexMgr_Pad(paliashdr->skinheight); //johnfitz -- texels already padded in mod_loadallskins
-
-	scaled_width = TexMgr_SafeTextureSize (inwidth); 
-	scaled_height = TexMgr_SafeTextureSize (inheight);
-	
-	for (i=0 ; i<256 ; i++)
-		translate32[i] = d_8to24table[translate[i]];
-
-	//no need to resample; image is already padded to a power of 2
-	{
-		char	name[64];
-
-		for (i=0; i<inwidth*inheight; i+=4)
-		{
-			pixels[i] = translate32[original[i]];
-			pixels[i+1] = translate32[original[i+1]];
-			pixels[i+2] = translate32[original[i+2]];
-			pixels[i+3] = translate32[original[i+3]];
-		}
-		sprintf(name, "player_%i", playernum);
-		playertextures[playernum] = TexMgr_LoadImage32 (NULL, name, scaled_width, scaled_height, pixels, TEXPREF_UNIQUE); //johnfitz
-	}
+//now recolor it
+	R_TranslatePlayerSkin (playernum);
 }
 
 /*
@@ -320,18 +290,15 @@ R_NewMap
 void R_NewMap (void)
 {
 	int		i;
-	
+
 	for (i=0 ; i<256 ; i++)
 		d_lightstylevalue[i] = 264;		// normal light value
-
-	memset (&r_worldentity, 0, sizeof(r_worldentity));
-	r_worldentity.model = cl.worldmodel;
 
 // clear out efrags in case the level hasn't been reloaded
 // FIXME: is this one short?
 	for (i=0 ; i<cl.worldmodel->numleafs ; i++)
 		cl.worldmodel->leafs[i].efrags = NULL;
-		 	
+
 	r_viewleaf = NULL;
 	R_ClearParticles ();
 
